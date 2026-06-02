@@ -438,18 +438,35 @@ function setupSpeech() {
   if (!SR) return null;
   const r = new SR();
   r.lang = 'ru-RU';
-  r.continuous = false;
+  r.continuous = true;
   r.interimResults = true;
+  let finalTranscript = '';
   r.onresult = (e) => {
-    let transcript = '';
+    let interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
-      transcript += e.results[i][0].transcript;
+      if (e.results[i].isFinal) {
+        finalTranscript += e.results[i][0].transcript + ' ';
+      } else {
+        interim += e.results[i][0].transcript;
+      }
     }
-    document.getElementById('cap-input').value = transcript;
+    document.getElementById('cap-input').value = (finalTranscript + interim).trim();
     autoResize();
   };
-  r.onend = () => stopRecording();
-  r.onerror = () => stopRecording();
+  r.onend = () => {
+    // если ещё держим кнопку — перезапускаем
+    if (recording) {
+      try { r.start(); } catch(e) {}
+    }
+  };
+  r.onerror = (e) => {
+    if (e.error === 'no-speech' && recording) {
+      try { r.start(); } catch(err) {}
+    } else {
+      stopRecording();
+    }
+  };
+  r._resetTranscript = () => { finalTranscript = ''; };
   return r;
 }
 
@@ -457,9 +474,10 @@ function startRecording() {
   recognition = setupSpeech();
   if (!recognition) { setStatus('Голосовой ввод не поддерживается в этом браузере'); return; }
   recording = true;
+  document.getElementById('cap-input').value = '';
   document.getElementById('cap-mic').classList.add('recording');
   setStatus('🎤 Говорите...');
-  recognition.start();
+  try { recognition.start(); } catch(e) {}
 }
 
 function stopRecording() {
