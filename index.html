@@ -51,7 +51,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 .cap-input{
   flex:1;background:transparent;border:none;outline:none;
   font-size:15px;color:rgba(255,255,255,0.82);font-family:'Inter',sans-serif;
-  line-height:1.5;resize:none;min-height:24px;max-height:120px;overflow-y:auto;
+  line-height:1.5;resize:none;min-height:24px;overflow-y:hidden;
 }
 .cap-input::placeholder{color:rgba(255,255,255,0.22)}
 .cap-mic{
@@ -517,8 +517,16 @@ function stopRecording() {
 }
 
 function toggleRecording() {
-  if (isRecording) stopRecording();
-  else startRecording();
+  if (isRecording) {
+    stopRecording();
+    // небольшая пауза чтобы финальный результат успел записаться в поле
+    setTimeout(() => {
+      const text = document.getElementById('cap-input').value.trim();
+      if (text) saveNote(text, 'voice');
+    }, 150);
+  } else {
+    startRecording();
+  }
 }
 
 function setMicState(on) {
@@ -543,7 +551,7 @@ function setStatus(txt) {
 function autoResize() {
   const ta = document.getElementById('cap-input');
   ta.style.height = 'auto';
-  ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+  ta.style.height = ta.scrollHeight + 'px';
 }
 
 function showClear() {
@@ -685,10 +693,14 @@ window.goTo = goTo;
 document.getElementById('cap-input').addEventListener('input', () => { autoResize(); showClear(); });
 
 document.getElementById('cap-send').addEventListener('click', () => {
-  const text = document.getElementById('cap-input').value;
-  const type = isRecording ? 'voice' : 'text';
-  if (isRecording) stopRecording();
-  saveNote(text, type);
+  const text = document.getElementById('cap-input').value.trim();
+  if (!text) return;
+  if (isRecording) {
+    stopRecording();
+    setTimeout(() => saveNote(text, 'voice'), 150);
+  } else {
+    saveNote(text, 'text');
+  }
 });
 
 document.getElementById('cap-mic').addEventListener('click', toggleRecording);
