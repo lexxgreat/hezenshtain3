@@ -280,17 +280,16 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 
   <!-- Status -->
   <div class="status">
-    <span>9:41</span>
+    <span id="clock">--:--</span>
     <span style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(108,71,255,0.65);font-weight:600">Hazenstein</span>
-    <span style="font-size:11px">●●● 5G</span>
+    <span></span>
   </div>
 
   <!-- ── MAIN SCREEN ── -->
   <div class="screen active" id="screen-main">
     <div class="main-top">
-      <div class="main-logo">H A Z E N S T E I N</div>
-      <div class="main-greeting">Good morning, Alexander</div>
-      <div class="main-sub">You are the architect of your reality.</div>
+      <div class="main-greeting">Привет, Алексей</div>
+      <div class="main-sub">Ты — архитектор своей реальности.</div>
     </div>
 
     <!-- Capture row -->
@@ -631,14 +630,42 @@ document.getElementById('cap-mic').addEventListener('click', () => {
   if (recording) stopRecording(); else startRecording();
 });
 
-// chaos button: tap = focus input, hold = start voice
-document.getElementById('chaos-btn').addEventListener('mousedown', () => {
-  pressTimer = setTimeout(() => { startRecording(); }, 400);
-});
-document.getElementById('chaos-btn').addEventListener('mouseup', () => {
-  clearTimeout(pressTimer);
-  if (!recording) document.getElementById('cap-input').focus();
-});
+// chaos button: hold = record while holding, release = stop + send
+const chaosBtn = document.getElementById('chaos-btn');
+
+function chaosDown(e) {
+  e.preventDefault();
+  startRecording();
+}
+function chaosUp(e) {
+  e.preventDefault();
+  if (recording) {
+    stopRecording();
+    setTimeout(() => {
+      const text = document.getElementById('cap-input').value.trim();
+      if (text) saveNote(text, 'voice');
+    }, 300);
+  } else {
+    document.getElementById('cap-input').focus();
+  }
+}
+
+chaosBtn.addEventListener('mousedown', chaosDown);
+chaosBtn.addEventListener('mouseup', chaosUp);
+chaosBtn.addEventListener('mouseleave', chaosUp);
+chaosBtn.addEventListener('touchstart', chaosDown, {passive: false});
+chaosBtn.addEventListener('touchend', chaosUp);
+chaosBtn.addEventListener('touchcancel', chaosUp);
+
+// clock
+function updateClock() {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2,'0');
+  const m = String(now.getMinutes()).padStart(2,'0');
+  document.getElementById('clock').textContent = h + ':' + m;
+}
+updateClock();
+setInterval(updateClock, 10000);
 document.getElementById('chaos-btn').addEventListener('touchstart', (e) => {
   e.preventDefault();
   pressTimer = setTimeout(() => startRecording(), 400);
