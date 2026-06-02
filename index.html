@@ -442,54 +442,63 @@ let activeTag = null;
 // ── РЕЧЬ ──
 let recognition = null;
 let isRecording = false;
-let accumulated = ''; // накопленный финальный текст
+let accumulated = ''; // финальный накопленный текст
 
 function getSR() {
   return window.SpeechRecognition || window.webkitSpeechRecognition;
 }
 
-function startRecording() {
+function createRecognition() {
   const SR = getSR();
-  if (!SR) { setStatus('Голосовой ввод не поддерживается'); return; }
+  if (!SR) return null;
+  const r = new SR();
+  r.lang = 'ru-RU';
+  r.continuous = false;      // без continuous — нет дублей и нет потери пробелов
+  r.interimResults = true;
+
+  r.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        const chunk = e.results[i][0].transcript.trim();
+        if (chunk) {
+          accumulated = accumulated ? accumulated + ' ' + chunk : chunk;
+        }
+      } else {
+        interim += e.results[i][0].transcript;
+      }
+    }
+    const display = accumulated + (interim ? (accumulated ? ' ' : '') + interim : '');
+    document.getElementById('cap-input').value = display;
+    autoResize();
+    showClear();
+  };
+
+  r.onend = () => {
+    // автоперезапуск, пока пользователь не нажал стоп
+    if (isRecording) {
+      try { recognition.start(); } catch(err) {}
+    }
+  };
+
+  r.onerror = (e) => {
+    if (e.error === 'aborted') return;
+    if (e.error === 'no-speech') return; // тихо — просто ждём
+    stopRecording();
+  };
+
+  return r;
+}
+
+function startRecording() {
+  if (!getSR()) { setStatus('Голосовой ввод не поддерживается'); return; }
 
   accumulated = '';
   document.getElementById('cap-input').value = '';
   autoResize();
 
-  recognition = new SR();
-  recognition.lang = 'ru-RU';
-  recognition.continuous = true;
-  recognition.interimResults = true;
-
-  recognition.onresult = (e) => {
-    // собираем только новые финальные результаты
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) {
-        accumulated += e.results[i][0].transcript;
-      }
-    }
-    // последний interim для отображения
-    let interim = '';
-    const last = e.results[e.results.length - 1];
-    if (!last.isFinal) interim = last[0].transcript;
-
-    document.getElementById('cap-input').value = (accumulated + interim).trim();
-    autoResize();
-    showClear();
-  };
-
-  recognition.onend = () => {
-    // перезапускаем только если ещё пишем
-    if (isRecording) {
-      try { recognition.start(); } catch(e) {}
-    }
-  };
-
-  recognition.onerror = (e) => {
-    if (e.error === 'aborted') return;
-    if (e.error === 'no-speech' && isRecording) return;
-    stopRecording();
-  };
+  recognition = createRecognition();
+  if (!recognition) return;
 
   isRecording = true;
   setMicState(true);
