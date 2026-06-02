@@ -438,78 +438,93 @@ const notesCol = collection(db, "notes");
 let notes = [];
 let editingId = null;
 let activeTag = null;
-let recording = false;
+
+// ── РЕЧЬ ──
 let recognition = null;
-let pressTimer = null;
+let isRecording = false;
+let accumulated = ''; // накопленный финальный текст
 
-// ── Speech Recognition ──
-let finalTranscript = '';
-let lastResultIndex = 0;
-
-function setupSpeech() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return null;
-  const r = new SR();
-  r.lang = 'ru-RU';
-  r.continuous = true;
-  r.interimResults = true;
-  r.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) {
-        finalTranscript += e.results[i][0].transcript + ' ';
-      }
-    }
-    // show final + current interim
-    let interim = '';
-    for (let i = e.results.length - 1; i >= 0; i--) {
-      if (!e.results[i].isFinal) interim = e.results[i][0].transcript;
-      else break;
-    }
-    document.getElementById('cap-input').value = (finalTranscript + interim).trim();
-    autoResize();
-    showClear();
-  };
-  r.onend = () => {
-    if (recording) { try { r.start(); } catch(e) {} }
-  };
-  r.onerror = (e) => {
-    if ((e.error === 'no-speech' || e.error === 'aborted') && recording) {
-      try { r.start(); } catch(err) {}
-    } else if (e.error !== 'aborted') {
-      stopRecording();
-    }
-  };
-  return r;
-}
-
-function toggleRecording() {
-  if (recording) {
-    stopRecording();
-  } else {
-    startRecording();
-  }
+function getSR() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition;
 }
 
 function startRecording() {
-  finalTranscript = '';
-  recognition = setupSpeech();
-  if (!recognition) { setStatus('Голосовой ввод не поддерживается в этом браузере'); return; }
-  recording = true;
-  document.getElementById('cap-mic').classList.add('recording');
-  document.getElementById('cap-mic').querySelector('svg').style.stroke = '#00D4FF';
+  const SR = getSR();
+  if (!SR) { setStatus('Голосовой ввод не поддерживается'); return; }
+
+  accumulated = '';
+  document.getElementById('cap-input').value = '';
+  autoResize();
+
+  recognition = new SR();
+  recognition.lang = 'ru-RU';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+
+  recognition.onresult = (e) => {
+    // собираем только новые финальные результаты
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        accumulated += e.results[i][0].transcript;
+      }
+    }
+    // последний interim для отображения
+    let interim = '';
+    const last = e.results[e.results.length - 1];
+    if (!last.isFinal) interim = last[0].transcript;
+
+    document.getElementById('cap-input').value = (accumulated + interim).trim();
+    autoResize();
+    showClear();
+  };
+
+  recognition.onend = () => {
+    // перезапускаем только если ещё пишем
+    if (isRecording) {
+      try { recognition.start(); } catch(e) {}
+    }
+  };
+
+  recognition.onerror = (e) => {
+    if (e.error === 'aborted') return;
+    if (e.error === 'no-speech' && isRecording) return;
+    stopRecording();
+  };
+
+  isRecording = true;
+  setMicState(true);
   setStatus('🎤 Говорите...');
   try { recognition.start(); } catch(e) {}
 }
 
 function stopRecording() {
-  recording = false;
-  document.getElementById('cap-mic').classList.remove('recording');
-  document.getElementById('cap-mic').querySelector('svg').style.stroke = 'rgba(255,255,255,0.6)';
+  isRecording = false;
+  setMicState(false);
   setStatus('');
-  if (recognition) { try { recognition.stop(); } catch(e){} recognition = null; }
+  if (recognition) {
+    try { recognition.stop(); } catch(e) {}
+    recognition = null;
+  }
 }
 
-// ── UI Helpers ──
+function toggleRecording() {
+  if (isRecording) stopRecording();
+  else startRecording();
+}
+
+function setMicState(on) {
+  const mic = document.getElementById('cap-mic');
+  const chaos = document.getElementById('chaos-btn');
+  if (on) {
+    mic.classList.add('recording');
+    chaos.style.filter = 'drop-shadow(0 0 20px rgba(0,212,255,0.9))';
+  } else {
+    mic.classList.remove('recording');
+    chaos.style.filter = '';
+  }
+}
+
+// ── UI ──
 function setStatus(txt) {
   const el = document.getElementById('cap-status');
   el.textContent = txt;
@@ -522,6 +537,11 @@ function autoResize() {
   ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
 }
 
+function showClear() {
+  const val = document.getElementById('cap-input').value;
+  document.getElementById('cap-clear').classList.toggle('show', val.length > 0);
+}
+
 function flashSaved() {
   const el = document.getElementById('save-flash');
   el.classList.add('show');
@@ -531,15 +551,14 @@ function flashSaved() {
 function setTag(tag) {
   activeTag = activeTag === tag ? null : tag;
   document.querySelectorAll('.qtag').forEach(b => {
-    b.style.borderColor = b.querySelector('.qtag-label').textContent === activeTag
-      ? 'rgba(108,71,255,0.5)' : '';
-    b.style.background = b.querySelector('.qtag-label').textContent === activeTag
-      ? 'rgba(108,71,255,0.12)' : '';
+    const isActive = b.querySelector('.qtag-label').textContent === activeTag;
+    b.style.borderColor = isActive ? 'rgba(108,71,255,0.5)' : '';
+    b.style.background = isActive ? 'rgba(108,71,255,0.12)' : '';
   });
 }
 window.setTag = setTag;
 
-// ── Save note ──
+// ── СОХРАНЕНИЕ ──
 async function saveNote(text, type) {
   if (!text.trim()) return;
   try {
@@ -551,16 +570,17 @@ async function saveNote(text, type) {
     });
     document.getElementById('cap-input').value = '';
     document.getElementById('cap-input').style.height = 'auto';
+    showClear();
     activeTag = null;
     document.querySelectorAll('.qtag').forEach(b => { b.style.borderColor=''; b.style.background=''; });
     flashSaved();
     await loadNotes();
   } catch(e) {
-    setStatus('Ошибка сохранения: ' + e.message);
+    setStatus('Ошибка: ' + e.message);
   }
 }
 
-// ── Load notes ──
+// ── ЗАГРУЗКА ──
 async function loadNotes() {
   try {
     const q = query(notesCol, orderBy('createdAt', 'desc'));
@@ -568,11 +588,10 @@ async function loadNotes() {
     notes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderNotes(notes);
   } catch(e) {
-    document.getElementById('hist-list').innerHTML = '<div class="hist-empty"><div>⚠️</div>Ошибка загрузки данных</div>';
+    document.getElementById('hist-list').innerHTML = '<div class="hist-empty"><div>⚠️</div>Ошибка загрузки</div>';
   }
 }
 
-// ── Render notes ──
 function renderNotes(list) {
   const el = document.getElementById('hist-list');
   document.getElementById('hist-count').textContent = list.length + ' записей';
@@ -603,14 +622,12 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ── Filter ──
 function filterNotes() {
   const q = document.getElementById('hist-search').value.toLowerCase();
   renderNotes(q ? notes.filter(n => n.text.toLowerCase().includes(q)) : notes);
 }
 window.filterNotes = filterNotes;
 
-// ── Edit ──
 function openEdit(id) {
   editingId = id;
   const n = notes.find(x => x.id === id);
@@ -637,7 +654,6 @@ async function saveEdit() {
 }
 window.saveEdit = saveEdit;
 
-// ── Delete ──
 async function deleteNote(id) {
   if (!confirm('Удалить запись?')) return;
   try {
@@ -647,7 +663,6 @@ async function deleteNote(id) {
 }
 window.deleteNote = deleteNote;
 
-// ── Navigation ──
 function goTo(screen) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.dock-item').forEach(b => b.classList.remove('active'));
@@ -657,55 +672,27 @@ function goTo(screen) {
 }
 window.goTo = goTo;
 
-// ── Events ──
+// ── СОБЫТИЯ ──
 document.getElementById('cap-input').addEventListener('input', () => { autoResize(); showClear(); });
 
 document.getElementById('cap-send').addEventListener('click', () => {
   const text = document.getElementById('cap-input').value;
-  saveNote(text, recording ? 'voice' : 'text');
+  const type = isRecording ? 'voice' : 'text';
+  if (isRecording) stopRecording();
+  saveNote(text, type);
 });
 
-// ── Button events ──
-function showClear() {
-  const val = document.getElementById('cap-input').value;
-  const btn = document.getElementById('cap-clear');
-  btn.classList.toggle('show', val.length > 0);
-}
-
-// Mic button - toggle
 document.getElementById('cap-mic').addEventListener('click', toggleRecording);
 
-// Clear button
 document.getElementById('cap-clear').addEventListener('click', () => {
   document.getElementById('cap-input').value = '';
   document.getElementById('cap-input').style.height = 'auto';
   showClear();
-  if (recording) stopRecording();
+  if (isRecording) stopRecording();
 });
 
-// Chaos button - toggle
-const chaosBtn = document.getElementById('chaos-btn');
-chaosBtn.addEventListener('click', toggleRecording);
+document.getElementById('chaos-btn').addEventListener('click', toggleRecording);
 
-// clock
-function updateClock() {
-  const now = new Date();
-  const h = String(now.getHours()).padStart(2,'0');
-  const m = String(now.getMinutes()).padStart(2,'0');
-  document.getElementById('clock').textContent = h + ':' + m;
-}
-updateClock();
-setInterval(updateClock, 10000);
-document.getElementById('chaos-btn').addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  pressTimer = setTimeout(() => startRecording(), 400);
-});
-document.getElementById('chaos-btn').addEventListener('touchend', () => {
-  clearTimeout(pressTimer);
-  if (!recording) document.getElementById('cap-input').focus();
-});
-
-// Enter to send (Shift+Enter = new line)
 document.getElementById('cap-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -713,7 +700,17 @@ document.getElementById('cap-input').addEventListener('keydown', (e) => {
   }
 });
 
-// init
+// clock
+function updateClock() {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2,'0');
+  const m = String(now.getMinutes()).padStart(2,'0');
+  const el = document.getElementById('clock');
+  if (el) el.textContent = h + ':' + m;
+}
+updateClock();
+setInterval(updateClock, 10000);
+
 loadNotes();
 </script>
 </body>
