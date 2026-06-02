@@ -63,6 +63,15 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 .cap-mic:hover{background:rgba(108,71,255,0.15)}
 .cap-mic.recording{background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.5);box-shadow:0 0 14px rgba(0,212,255,0.3);animation:micPulse 1s ease-in-out infinite}
 @keyframes micPulse{0%,100%{box-shadow:0 0 14px rgba(0,212,255,0.3)}50%{box-shadow:0 0 24px rgba(0,212,255,0.6)}}
+.cap-clear{
+  width:28px;height:28px;border-radius:50%;border:none;
+  background:rgba(255,255,255,0.06);cursor:pointer;
+  display:none;align-items:center;justify-content:center;
+  transition:all 0.2s;flex-shrink:0;color:rgba(255,255,255,0.4);
+  font-size:16px;line-height:1;
+}
+.cap-clear.show{display:flex}
+.cap-clear:hover{background:rgba(255,80,80,0.15);color:rgba(255,100,100,0.8)}
 .cap-send{
   width:36px;height:36px;border-radius:50%;border:none;
   background:rgba(108,71,255,0.25);cursor:pointer;
@@ -213,8 +222,8 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 .type-voice{background:rgba(0,212,255,0.1);color:rgba(0,212,255,0.8);border:0.5px solid rgba(0,212,255,0.2)}
 .type-text{background:rgba(108,71,255,0.1);color:rgba(139,92,246,0.8);border:0.5px solid rgba(108,71,255,0.2)}
 .note-text{font-size:13.5px;color:rgba(255,255,255,0.72);line-height:1.5;word-break:break-word}
-.note-actions{display:flex;gap:8px;margin-top:10px;opacity:0;transition:opacity 0.2s}
-.note-card:hover .note-actions{opacity:1}
+.note-actions{display:flex;gap:8px;margin-top:10px;opacity:1;}
+
 .note-btn{
   font-size:11px;padding:4px 12px;border-radius:99px;border:none;
   cursor:pointer;font-family:'Inter',sans-serif;font-weight:500;transition:all 0.2s;
@@ -299,6 +308,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
           <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6L12 2z"/>
         </svg>
         <textarea class="cap-input" id="cap-input" placeholder="Capture thoughts or wishes..." rows="1"></textarea>
+        <button class="cap-clear" id="cap-clear" title="Очистить">✕</button>
         <button class="cap-mic" id="cap-mic" title="Голосовой ввод">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="1.7" stroke-linecap="round">
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
@@ -433,6 +443,9 @@ let recognition = null;
 let pressTimer = null;
 
 // ── Speech Recognition ──
+let finalTranscript = '';
+let lastResultIndex = 0;
+
 function setupSpeech() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
@@ -440,42 +453,50 @@ function setupSpeech() {
   r.lang = 'ru-RU';
   r.continuous = true;
   r.interimResults = true;
-  let finalTranscript = '';
   r.onresult = (e) => {
-    let interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       if (e.results[i].isFinal) {
         finalTranscript += e.results[i][0].transcript + ' ';
-      } else {
-        interim += e.results[i][0].transcript;
       }
+    }
+    // show final + current interim
+    let interim = '';
+    for (let i = e.results.length - 1; i >= 0; i--) {
+      if (!e.results[i].isFinal) interim = e.results[i][0].transcript;
+      else break;
     }
     document.getElementById('cap-input').value = (finalTranscript + interim).trim();
     autoResize();
+    showClear();
   };
   r.onend = () => {
-    // если ещё держим кнопку — перезапускаем
-    if (recording) {
-      try { r.start(); } catch(e) {}
-    }
+    if (recording) { try { r.start(); } catch(e) {} }
   };
   r.onerror = (e) => {
-    if (e.error === 'no-speech' && recording) {
+    if ((e.error === 'no-speech' || e.error === 'aborted') && recording) {
       try { r.start(); } catch(err) {}
-    } else {
+    } else if (e.error !== 'aborted') {
       stopRecording();
     }
   };
-  r._resetTranscript = () => { finalTranscript = ''; };
   return r;
 }
 
+function toggleRecording() {
+  if (recording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+}
+
 function startRecording() {
+  finalTranscript = '';
   recognition = setupSpeech();
   if (!recognition) { setStatus('Голосовой ввод не поддерживается в этом браузере'); return; }
   recording = true;
-  document.getElementById('cap-input').value = '';
   document.getElementById('cap-mic').classList.add('recording');
+  document.getElementById('cap-mic').querySelector('svg').style.stroke = '#00D4FF';
   setStatus('🎤 Говорите...');
   try { recognition.start(); } catch(e) {}
 }
@@ -483,6 +504,7 @@ function startRecording() {
 function stopRecording() {
   recording = false;
   document.getElementById('cap-mic').classList.remove('recording');
+  document.getElementById('cap-mic').querySelector('svg').style.stroke = 'rgba(255,255,255,0.6)';
   setStatus('');
   if (recognition) { try { recognition.stop(); } catch(e){} recognition = null; }
 }
@@ -636,44 +658,34 @@ function goTo(screen) {
 window.goTo = goTo;
 
 // ── Events ──
-document.getElementById('cap-input').addEventListener('input', autoResize);
+document.getElementById('cap-input').addEventListener('input', () => { autoResize(); showClear(); });
 
 document.getElementById('cap-send').addEventListener('click', () => {
   const text = document.getElementById('cap-input').value;
   saveNote(text, recording ? 'voice' : 'text');
 });
 
-// mic: click = toggle, hold = hold-to-record
-document.getElementById('cap-mic').addEventListener('click', () => {
-  if (recording) stopRecording(); else startRecording();
+// ── Button events ──
+function showClear() {
+  const val = document.getElementById('cap-input').value;
+  const btn = document.getElementById('cap-clear');
+  btn.classList.toggle('show', val.length > 0);
+}
+
+// Mic button - toggle
+document.getElementById('cap-mic').addEventListener('click', toggleRecording);
+
+// Clear button
+document.getElementById('cap-clear').addEventListener('click', () => {
+  document.getElementById('cap-input').value = '';
+  document.getElementById('cap-input').style.height = 'auto';
+  showClear();
+  if (recording) stopRecording();
 });
 
-// chaos button: hold = record while holding, release = stop + send
+// Chaos button - toggle
 const chaosBtn = document.getElementById('chaos-btn');
-
-function chaosDown(e) {
-  e.preventDefault();
-  startRecording();
-}
-function chaosUp(e) {
-  e.preventDefault();
-  if (recording) {
-    stopRecording();
-    setTimeout(() => {
-      const text = document.getElementById('cap-input').value.trim();
-      if (text) saveNote(text, 'voice');
-    }, 300);
-  } else {
-    document.getElementById('cap-input').focus();
-  }
-}
-
-chaosBtn.addEventListener('mousedown', chaosDown);
-chaosBtn.addEventListener('mouseup', chaosUp);
-chaosBtn.addEventListener('mouseleave', chaosUp);
-chaosBtn.addEventListener('touchstart', chaosDown, {passive: false});
-chaosBtn.addEventListener('touchend', chaosUp);
-chaosBtn.addEventListener('touchcancel', chaosUp);
+chaosBtn.addEventListener('click', toggleRecording);
 
 // clock
 function updateClock() {
