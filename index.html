@@ -51,7 +51,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 .cap-input{
   flex:1;background:transparent;border:none;outline:none;
   font-size:15px;color:rgba(255,255,255,0.82);font-family:'Inter',sans-serif;
-  line-height:1.5;resize:none;min-height:24px;overflow-y:hidden;
+  line-height:1.5;resize:none;min-height:24px;max-height:50dvh;overflow-y:auto;
 }
 .cap-input::placeholder{color:rgba(255,255,255,0.22)}
 .cap-mic{
@@ -551,7 +551,7 @@ function setStatus(txt) {
 function autoResize() {
   const ta = document.getElementById('cap-input');
   ta.style.height = 'auto';
-  ta.style.height = ta.scrollHeight + 'px';
+  ta.style.height = Math.min(ta.scrollHeight, window.innerHeight * 0.5) + 'px';
 }
 
 function showClear() {
