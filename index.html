@@ -230,6 +230,10 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 }
 .note-edit{background:rgba(108,71,255,0.15);color:rgba(139,92,246,0.9)}
 .note-edit:hover{background:rgba(108,71,255,0.3)}
+.note-done{background:rgba(0,200,100,0.12);color:rgba(0,220,110,0.85);border:0.5px solid rgba(0,200,100,0.25)}
+.note-done:hover{background:rgba(0,200,100,0.25)}
+.note-undone{background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.4);border:0.5px solid rgba(255,255,255,0.1)}
+.note-undone:hover{background:rgba(255,255,255,0.1)}
 .note-del{background:rgba(255,80,80,0.1);color:rgba(255,100,100,0.8)}
 .note-del:hover{background:rgba(255,80,80,0.25)}
 
@@ -370,10 +374,10 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 
     <!-- Quick tags -->
     <div class="qtags">
-      <button class="qtag" onclick="setTag('Goal')"><span class="qtag-icon">🎯</span><span class="qtag-label">Goal</span></button>
-      <button class="qtag" onclick="setTag('Reminder')"><span class="qtag-icon">🔔</span><span class="qtag-label">Reminder</span></button>
-      <button class="qtag" onclick="setTag('Gratitude')"><span class="qtag-icon">🤍</span><span class="qtag-label">Gratitude</span></button>
-      <button class="qtag" onclick="setTag('Idea')"><span class="qtag-icon">💡</span><span class="qtag-label">New idea</span></button>
+      <button class="qtag" onclick="setTag('Задача')"><span class="qtag-icon">✅</span><span class="qtag-label">Задача</span></button>
+      <button class="qtag" onclick="setTag('Цель')"><span class="qtag-icon">🎯</span><span class="qtag-label">Цель</span></button>
+      <button class="qtag" onclick="setTag('Идея')"><span class="qtag-icon">💡</span><span class="qtag-label">Идея</span></button>
+      <button class="qtag" onclick="setTag('Дневник')"><span class="qtag-icon">📓</span><span class="qtag-label">Дневник</span></button>
     </div>
 
     <!-- Big chaos button -->
@@ -455,7 +459,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
         <div class="chat-title">Хазенштейн ИИ</div>
         <div class="chat-subtitle" id="chat-subtitle">Готов помочь</div>
       </div>
-      <button class="chat-clear-btn" onclick="clearChatHistory()">Очистить</button>
+      <button class="chat-clear-btn" onclick="exportChat()">⬇ Экспорт</button>
     </div>
     <div class="chat-messages" id="chat-messages"></div>
     <div class="chat-input-wrap">
@@ -519,6 +523,30 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const notesCol = collection(db, "notes");
 const chatCol = collection(db, "chat");
+const settingsCol = collection(db, "settings");
+
+let customPromptAddition = ''; // дополнение к промпту из базы
+
+async function loadCustomPrompt() {
+  try {
+    const snap = await getDocs(settingsCol);
+    const doc_ = snap.docs.find(d => d.id === 'ai_prompt');
+    if (doc_) customPromptAddition = doc_.data().addition || '';
+  } catch {}
+}
+
+async function saveCustomPrompt(text) {
+  try {
+    const snap = await getDocs(settingsCol);
+    const existing = snap.docs.find(d => d.id === 'ai_prompt');
+    if (existing) {
+      await updateDoc(doc(db, 'settings', 'ai_prompt'), { addition: text });
+    } else {
+      await addDoc(settingsCol, { addition: text });
+    }
+    customPromptAddition = text;
+  } catch(e) { console.error('prompt save error', e); }
+}
 
 let notes = [];
 let editingId = null;
@@ -702,17 +730,24 @@ function renderNotes(list) {
     return;
   }
   el.innerHTML = list.map(n => {
-    const d = new Date(n.createdAt);
-    const date = d.toLocaleDateString('ru-RU', { day:'numeric', month:'short' });
-    const time = d.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' });
+    // UTC+3 Moscow time
+    const d = new Date(new Date(n.createdAt).getTime() + 3*60*60*1000);
+    const date = d.toLocaleDateString('ru-RU', { day:'numeric', month:'short', timeZone:'UTC' });
+    const time = d.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'UTC' });
+    const isDone = n.done === true;
+    const isTask = n.tag === 'Задача';
+    const cardStyle = isDone ? 'opacity:0.5;' : '';
+    const textStyle = isDone ? 'text-decoration:line-through;color:rgba(255,255,255,0.4);' : '';
+    const doneBtn = isTask ? `<button class="note-btn ${isDone ? 'note-undone' : 'note-done'}" onclick="toggleDone('${n.id}', ${isDone})">${isDone ? '↩ Открыть' : '✓ Выполнено'}</button>` : '';
     return `
-      <div class="note-card">
+      <div class="note-card" style="${cardStyle}">
         <div class="note-meta">
           <span class="note-date">${date} · ${time}${n.tag ? ' · ' + n.tag : ''}</span>
           <span class="note-type ${n.type === 'voice' ? 'type-voice' : 'type-text'}">${n.type === 'voice' ? '🎤 Голос' : '✏️ Текст'}</span>
         </div>
-        <div class="note-text">${escHtml(n.text)}</div>
+        <div class="note-text" style="${textStyle}">${escHtml(n.text)}</div>
         <div class="note-actions">
+          ${doneBtn}
           <button class="note-btn note-edit" onclick="openEdit('${n.id}')">Редактировать</button>
           <button class="note-btn note-del" onclick="deleteNote('${n.id}')">Удалить</button>
         </div>
@@ -764,6 +799,30 @@ async function deleteNote(id) {
   } catch(e) { alert('Ошибка: ' + e.message); }
 }
 window.deleteNote = deleteNote;
+
+async function toggleDone(id, currentDone) {
+  try {
+    await updateDoc(doc(db, 'notes', id), { done: !currentDone });
+    await loadNotes();
+  } catch(e) { alert('Ошибка: ' + e.message); }
+}
+window.toggleDone = toggleDone;
+
+// экспорт чата
+window.exportChat = async function() {
+  try {
+    const q = query(chatCol, orderBy('time', 'asc'));
+    const snap = await getDocs(q);
+    const data = snap.docs.map(d => d.data());
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'hazenstein_chat_' + new Date().toISOString().slice(0,10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) { alert('Ошибка экспорта: ' + e.message); }
+};
 
 function goTo(screen) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -860,7 +919,7 @@ function renderChat() {
   el.innerHTML = chatHistory.map((m, i) => {
     if (m.role === 'system') return '';
     const isUser = m.role === 'user';
-    const time = m.time ? new Date(m.time).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}) : '';
+    const time = m.time ? new Date(new Date(m.time).getTime()+3*60*60*1000).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',timeZone:'UTC'}) : '';
     let confirmHtml = '';
     if (m.confirmData && !m.confirmData.resolved) {
       confirmHtml = `<div class="bubble-confirm">
@@ -922,25 +981,51 @@ function hideTyping() {
   if (t) t.remove();
 }
 
-function buildSystemPrompt() {
-  const todayStr = new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-  const notesContext = notes.slice(0,80).map(n => {
-    const d = new Date(n.createdAt).toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
-    return `[${d}${n.tag?' | '+n.tag:''}] ${n.text}`;
-  }).join('\n');
-  return `Ты — личный ИИ-ассистент Алексея в приложении Hazenstein. Сегодня: ${todayStr}.
+function toMoscow(isoStr) {
+  const d = new Date(isoStr);
+  // UTC+3
+  d.setTime(d.getTime() + 3 * 60 * 60 * 1000);
+  const day = String(d.getUTCDate()).padStart(2,'0');
+  const months = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+  const mon = months[d.getUTCMonth()];
+  const h = String(d.getUTCHours()).padStart(2,'0');
+  const m = String(d.getUTCMinutes()).padStart(2,'0');
+  return `${day} ${mon} ${h}:${m}`;
+}
 
-БАЗА ДАННЫХ (последние записи):
+function buildSystemPrompt() {
+  const now = new Date();
+  now.setTime(now.getTime() + 3 * 60 * 60 * 1000);
+  const days = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+  const months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  const todayStr = `${days[now.getUTCDay()]}, ${now.getUTCDate()} ${months[now.getUTCMonth()]} ${now.getUTCFullYear()}, ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')} (МСК)`;
+
+  const notesContext = notes.slice(0,100).map(n => {
+    return `[${toMoscow(n.createdAt)} МСК${n.tag?' | '+n.tag:''}] ${n.text}`;
+  }).join('\n');
+
+  return `Ты — личный ИИ-ассистент Алексея в приложении Hazenstein. Сейчас: ${todayStr}.
+
+БАЗА ДАННЫХ (все записи, время московское):
 ${notesContext||'(пока пусто)'}
 
-ТВОИ ЗАДАЧИ:
-1. Отвечай на вопросы о базе: «что сегодня», «мои цели», «покажи задачи»
-2. Помогай категоризировать записи (теги: Goal, Reminder, Idea, Gratitude, Task)
-3. Если в разговоре обнаружишь новую задачу/идею — предложи добавить. Используй формат: [ДОБАВИТЬ: текст | тег]
-4. Задачи с датой — предлагай тег Reminder и включай дату в текст в формате DD.MM.YYYY
-5. При старте чата, если есть просроченные напоминания — сообщи о них
+ПРАВИЛА:
 
-Отвечай кратко, по-русски, дружелюбно.`;
+1. ВОПРОСЫ О БАЗЕ — отвечай точно используя время из базы. Для подсчётов (сколько таксовал, сколько заработал) — ищи пары «начал/закончил» по времени записи.
+
+2. САММАРИ ДНЯ — когда просят «что было сегодня» или «итоги дня»: группируй по категориям, считай время и деньги если есть, перечисли выполненные и невыполненные задачи.
+
+3. ПРОВЕРКА ЗАДАЧ — если в базе есть задачи с тегом «Задача» без done:true, периодически спрашивай «Ты сделал X?». Если пользователь отвечает «да» или «сделал» — используй [ВЫПОЛНЕНО: id_задачи] для пометки. Если id неизвестен — [ВЫПОЛНЕНО: текст задачи].
+
+4. ДОБАВЛЕНИЕ В БАЗУ — спрашивай «Добавить в базу?» и используй [ДОБАВИТЬ: текст | тег] ТОЛЬКО когда пользователь говорит о конкретном действии которое надо сделать, ставит задачу на будущее, формулирует цель или намерение. НЕ спрашивай если: просто болтает, задаёт вопрос, отвечает «да/нет».
+
+5. ОБНОВЛЕНИЕ ПРОМПТА — если пользователь говорит «запомни», «обучись», «добавь в промпт» — используй [ПРОМПТ: новое правило или инструкция]. Это сохранится в базе и будет использоваться всегда.
+
+6. ТЕГИ: Задача, Цель, Идея, Дневник, Такси, Напоминание.
+
+${customPromptAddition ? '7. ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОТ ПОЛЬЗОВАТЕЛЯ:\n' + customPromptAddition : ''}
+
+Отвечай кратко, по-русски, дружелюбно. Не пересказывай базу целиком.`;
 }
 
 async function sendChatMessage(userText) {
@@ -962,15 +1047,42 @@ async function sendChatMessage(userText) {
     hideTyping();
     document.getElementById('chat-subtitle').textContent = 'Готов помочь';
     const reply = data.choices?.[0]?.message?.content || 'Нет ответа';
-    const addMatch = reply.match(/\[ДОБАВИТЬ:\s*(.+?)(?:\s*\|\s*(\w+))?\]/);
+
+    // обрабатываем все команды в ответе
+    let cleanReply = reply;
+
+    // [ПРОМПТ: ...]
+    const promptMatch = reply.match(/\[ПРОМПТ:\s*(.+?)\]/s);
+    if (promptMatch) {
+      const newRule = promptMatch[1].trim();
+      const updated = customPromptAddition ? customPromptAddition + '\n' + newRule : newRule;
+      await saveCustomPrompt(updated);
+      cleanReply = cleanReply.replace(promptMatch[0], '').trim();
+    }
+
+    // [ВЫПОЛНЕНО: ...]
+    const doneMatch = reply.match(/\[ВЫПОЛНЕНО:\s*(.+?)\]/);
+    if (doneMatch) {
+      const target = doneMatch[1].trim();
+      // ищем задачу по тексту
+      const task = notes.find(n => n.tag === 'Задача' && n.text.toLowerCase().includes(target.toLowerCase()) && !n.done);
+      if (task) {
+        await updateDoc(doc(db, 'notes', task.id), { done: true });
+        await loadNotes();
+      }
+      cleanReply = cleanReply.replace(doneMatch[0], '').trim();
+    }
+
+    // [ДОБАВИТЬ: ...]
+    const addMatch = cleanReply.match(/\[ДОБАВИТЬ:\s*(.+?)(?:\s*\|\s*(\w+))?\]/);
     if (addMatch) {
       const noteText = addMatch[1].trim();
       const noteTag = addMatch[2]?.trim() || null;
-      const cleanReply = reply.replace(addMatch[0],'').trim();
-      await addChatMessage('assistant', cleanReply + '\n\nДобавить в базу: «'+noteText+'»?',
+      cleanReply = cleanReply.replace(addMatch[0], '').trim();
+      await addChatMessage('assistant', cleanReply + (cleanReply ? '\n\n' : '') + 'Добавить в базу: «'+noteText+'»?',
         {note:{text:noteText,tag:noteTag},resolved:false});
     } else {
-      await addChatMessage('assistant', reply);
+      await addChatMessage('assistant', cleanReply || reply);
     }
   } catch(e) {
     hideTyping();
@@ -1082,6 +1194,7 @@ document.getElementById('chat-input').addEventListener('keydown',(e)=>{
 });
 
 
+loadCustomPrompt();
 loadChatHistory();
 loadNotes();
 </script>
