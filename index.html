@@ -277,6 +277,49 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 .dock-item.active svg{color:#8B5CF6;filter:drop-shadow(0 0 6px rgba(108,71,255,0.8))}
 .dock-item.active span{color:rgba(139,92,246,0.75)}
 .dock-item.active::after{content:'';position:absolute;bottom:2px;width:4px;height:4px;border-radius:50%;background:#6C47FF;box-shadow:0 0 6px #6C47FF}
+
+/* ── CHAT SCREEN ── */
+.chat-header{padding:16px 20px 10px;flex-shrink:0;display:flex;align-items:center;gap:10px}
+.chat-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#6C47FF,#00D4FF);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.chat-title-wrap{flex:1}
+.chat-title{font-size:16px;font-weight:600;color:rgba(255,255,255,0.9)}
+.chat-subtitle{font-size:11px;color:rgba(255,255,255,0.3);margin-top:1px}
+.chat-clear-btn{padding:5px 12px;border-radius:99px;border:0.5px solid rgba(255,255,255,0.1);background:transparent;color:rgba(255,255,255,0.3);font-size:11px;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.2s}
+.chat-clear-btn:hover{border-color:rgba(255,80,80,0.3);color:rgba(255,100,100,0.6)}
+
+.chat-messages{flex:1;overflow-y:auto;padding:8px 16px;display:flex;flex-direction:column;gap:10px}
+.chat-messages::-webkit-scrollbar{width:0}
+
+.chat-bubble{max-width:82%;padding:10px 14px;border-radius:18px;font-size:13.5px;line-height:1.55;word-break:break-word;position:relative}
+.bubble-user{align-self:flex-end;background:rgba(108,71,255,0.25);border:0.5px solid rgba(108,71,255,0.35);color:rgba(255,255,255,0.88);border-bottom-right-radius:5px}
+.bubble-ai{align-self:flex-start;background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.09);color:rgba(255,255,255,0.8);border-bottom-left-radius:5px}
+.bubble-time{font-size:9px;color:rgba(255,255,255,0.25);margin-top:5px;text-align:right}
+.bubble-ai .bubble-time{text-align:left}
+
+.bubble-confirm{margin-top:10px;display:flex;gap:7px;flex-wrap:wrap}
+.confirm-btn{padding:5px 13px;border-radius:99px;border:none;cursor:pointer;font-size:12px;font-weight:500;font-family:'Inter',sans-serif;transition:all 0.2s}
+.confirm-yes{background:rgba(108,71,255,0.3);color:rgba(139,92,246,0.95);border:0.5px solid rgba(108,71,255,0.4)}
+.confirm-yes:hover{background:rgba(108,71,255,0.5)}
+.confirm-no{background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.45);border:0.5px solid rgba(255,255,255,0.1)}
+.confirm-no:hover{background:rgba(255,80,80,0.12);color:rgba(255,100,100,0.7)}
+
+.bubble-typing{display:flex;align-items:center;gap:4px;padding:12px 16px}
+.typing-dot{width:6px;height:6px;border-radius:50%;background:rgba(108,71,255,0.6);animation:typingBounce 1.2s ease-in-out infinite}
+.typing-dot:nth-child(2){animation-delay:0.2s}
+.typing-dot:nth-child(3){animation-delay:0.4s}
+@keyframes typingBounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
+
+.chat-input-wrap{padding:10px 16px 14px;flex-shrink:0;border-top:0.5px solid rgba(255,255,255,0.06)}
+.chat-input-row{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(108,71,255,0.3);border-radius:18px;padding:10px 12px;transition:border-color 0.2s}
+.chat-input-row:focus-within{border-color:rgba(108,71,255,0.6)}
+.chat-textarea{flex:1;background:transparent;border:none;outline:none;font-size:14px;color:rgba(255,255,255,0.82);font-family:'Inter',sans-serif;line-height:1.5;resize:none;min-height:22px;max-height:120px;overflow-y:auto}
+.chat-textarea::placeholder{color:rgba(255,255,255,0.22)}
+.chat-mic-btn{width:34px;height:34px;border-radius:50%;border:none;background:rgba(255,255,255,0.06);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0}
+.chat-mic-btn:hover{background:rgba(108,71,255,0.15)}
+.chat-mic-btn.recording{background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.5);animation:micPulse 1s ease-in-out infinite}
+.chat-send-btn{width:34px;height:34px;border-radius:50%;border:none;background:rgba(108,71,255,0.25);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0}
+.chat-send-btn:hover{background:rgba(108,71,255,0.45)}
+.chat-send-btn:active{transform:scale(0.92)}
 </style>
 </head>
 <body>
@@ -373,8 +416,13 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
   <!-- ── HISTORY SCREEN ── -->
   <div class="screen" id="screen-hist">
     <div class="hist-header">
-      <div class="hist-title">История</div>
-      <div class="hist-sub" id="hist-count">Загрузка...</div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="hist-title">История</div>
+          <div class="hist-sub" id="hist-count">Загрузка...</div>
+        </div>
+        <button onclick="exportNotes()" style="padding:6px 14px;border-radius:99px;border:0.5px solid rgba(108,71,255,0.4);background:rgba(108,71,255,0.1);color:rgba(139,92,246,0.9);font-size:12px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.2s">⬇ Экспорт</button>
+      </div>
     </div>
     <div class="hist-search">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.7" stroke-linecap="round">
@@ -399,6 +447,36 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     </div>
   </div>
 
+  <!-- ── CHAT SCREEN ── -->
+  <div class="screen" id="screen-chat">
+    <div class="chat-header">
+      <div class="chat-avatar">🤖</div>
+      <div class="chat-title-wrap">
+        <div class="chat-title">Хазенштейн ИИ</div>
+        <div class="chat-subtitle" id="chat-subtitle">Готов помочь</div>
+      </div>
+      <button class="chat-clear-btn" onclick="clearChatHistory()">Очистить</button>
+    </div>
+    <div class="chat-messages" id="chat-messages"></div>
+    <div class="chat-input-wrap">
+      <div class="chat-input-row">
+        <textarea class="chat-textarea" id="chat-input" placeholder="Спросите что угодно..." rows="1"></textarea>
+        <button class="chat-mic-btn" id="chat-mic" title="Голос">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="1.7" stroke-linecap="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </button>
+        <button class="chat-send-btn" id="chat-send">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,0.95)" stroke-width="2" stroke-linecap="round">
+            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="rgba(139,92,246,0.95)" stroke="none"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- DOCK -->
   <div class="dock">
     <button class="dock-item active" id="dock-main" onclick="goTo('main')">
@@ -413,6 +491,12 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
         <path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/>
       </svg>
       <span>История</span>
+    </button>
+    <button class="dock-item" id="dock-chat" onclick="goTo('chat')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      <span>Чат ИИ</span>
     </button>
   </div>
 </div>
@@ -434,6 +518,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const notesCol = collection(db, "notes");
+const chatCol = collection(db, "chat");
 
 let notes = [];
 let editingId = null;
@@ -686,6 +771,7 @@ function goTo(screen) {
   document.getElementById('screen-' + screen).classList.add('active');
   document.getElementById('dock-' + screen).classList.add('active');
   if (screen === 'hist') loadNotes();
+  if (screen === 'chat') { renderChat(); checkRemindersOnOpen(); }
 }
 window.goTo = goTo;
 
@@ -732,6 +818,271 @@ function updateClock() {
 updateClock();
 setInterval(updateClock, 10000);
 
+// ── ЧАТ ИИ ──
+const POLZA_KEY = 'pza_cThu2r1mJJ05nJQxKWEjbyrqgnTaNVxk';
+const POLZA_URL = 'https://api.polza.ai/api/v1/chat/completions';
+const CHAT_MODEL = 'openai/gpt-4o-mini';
+
+let chatHistory = [];
+let chatRecognition = null;
+let isChatRecording = false;
+let chatAccumulated = '';
+
+async function loadChatHistory() {
+  try {
+    const q = query(chatCol, orderBy('time', 'asc'));
+    const snap = await getDocs(q);
+    chatHistory = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch { chatHistory = []; }
+}
+
+async function saveChatMessage(msg) {
+  try {
+    const docRef = await addDoc(chatCol, msg);
+    msg.id = docRef.id;
+  } catch(e) { console.error('chat save error', e); }
+}
+
+async function deleteChatHistory() {
+  try {
+    const snap = await getDocs(chatCol);
+    await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'chat', d.id))));
+  } catch {}
+}
+
+function escHtmlChat(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+function renderChat() {
+  const el = document.getElementById('chat-messages');
+  if (!el) return;
+  el.innerHTML = chatHistory.map((m, i) => {
+    if (m.role === 'system') return '';
+    const isUser = m.role === 'user';
+    const time = m.time ? new Date(m.time).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}) : '';
+    let confirmHtml = '';
+    if (m.confirmData && !m.confirmData.resolved) {
+      confirmHtml = `<div class="bubble-confirm">
+        <button class="confirm-btn confirm-yes" onclick="resolveConfirm(${i},true)">✓ Да, добавить</button>
+        <button class="confirm-btn confirm-no" onclick="resolveConfirm(${i},false)">✗ Нет</button>
+      </div>`;
+    }
+    return `<div class="chat-bubble ${isUser?'bubble-user':'bubble-ai'}">
+      ${escHtmlChat(m.content)}${confirmHtml}
+      <div class="bubble-time">${time}</div>
+    </div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+window.resolveConfirm = async function(idx, yes) {
+  const m = chatHistory[idx];
+  if (!m || !m.confirmData) return;
+  m.confirmData.resolved = true;
+  if (m.id) {
+    try { await updateDoc(doc(db,'chat',m.id), {confirmData: m.confirmData}); } catch {}
+  }
+  if (yes) {
+    const nd = m.confirmData.note;
+    try {
+      await addDoc(notesCol, {
+        text: nd.text, type: 'text',
+        tag: nd.tag || null,
+        createdAt: new Date().toISOString()
+      });
+      await addChatMessage('assistant', '✅ Добавлено в базу!');
+      await loadNotes();
+    } catch(e) { await addChatMessage('assistant', 'Ошибка: ' + e.message); }
+  } else {
+    await addChatMessage('assistant', 'Хорошо, ничего не добавляю.');
+  }
+  renderChat();
+};
+
+async function addChatMessage(role, content, confirmData) {
+  const msg = { role, content, time: new Date().toISOString() };
+  if (confirmData) msg.confirmData = confirmData;
+  chatHistory.push(msg);
+  await saveChatMessage(msg);
+  renderChat();
+}
+
+function showTyping() {
+  const el = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-bubble bubble-ai';
+  div.id = 'typing-indicator';
+  div.innerHTML = '<div class="bubble-typing"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>';
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+function hideTyping() {
+  const t = document.getElementById('typing-indicator');
+  if (t) t.remove();
+}
+
+function buildSystemPrompt() {
+  const todayStr = new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  const notesContext = notes.slice(0,80).map(n => {
+    const d = new Date(n.createdAt).toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
+    return `[${d}${n.tag?' | '+n.tag:''}] ${n.text}`;
+  }).join('\n');
+  return `Ты — личный ИИ-ассистент Алексея в приложении Hazenstein. Сегодня: ${todayStr}.
+
+БАЗА ДАННЫХ (последние записи):
+${notesContext||'(пока пусто)'}
+
+ТВОИ ЗАДАЧИ:
+1. Отвечай на вопросы о базе: «что сегодня», «мои цели», «покажи задачи»
+2. Помогай категоризировать записи (теги: Goal, Reminder, Idea, Gratitude, Task)
+3. Если в разговоре обнаружишь новую задачу/идею — предложи добавить. Используй формат: [ДОБАВИТЬ: текст | тег]
+4. Задачи с датой — предлагай тег Reminder и включай дату в текст в формате DD.MM.YYYY
+5. При старте чата, если есть просроченные напоминания — сообщи о них
+
+Отвечай кратко, по-русски, дружелюбно.`;
+}
+
+async function sendChatMessage(userText) {
+  if (!userText.trim()) return;
+  await addChatMessage('user', userText);
+  const apiMessages = [
+    { role:'system', content: buildSystemPrompt() },
+    ...chatHistory.filter(m=>m.role==='user'||m.role==='assistant').slice(-20).map(m=>({role:m.role,content:m.content}))
+  ];
+  showTyping();
+  document.getElementById('chat-subtitle').textContent = 'Думаю...';
+  try {
+    const res = await fetch(POLZA_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+POLZA_KEY},
+      body: JSON.stringify({model:CHAT_MODEL, max_tokens:700, messages:apiMessages})
+    });
+    const data = await res.json();
+    hideTyping();
+    document.getElementById('chat-subtitle').textContent = 'Готов помочь';
+    const reply = data.choices?.[0]?.message?.content || 'Нет ответа';
+    const addMatch = reply.match(/\[ДОБАВИТЬ:\s*(.+?)(?:\s*\|\s*(\w+))?\]/);
+    if (addMatch) {
+      const noteText = addMatch[1].trim();
+      const noteTag = addMatch[2]?.trim() || null;
+      const cleanReply = reply.replace(addMatch[0],'').trim();
+      await addChatMessage('assistant', cleanReply + '\n\nДобавить в базу: «'+noteText+'»?',
+        {note:{text:noteText,tag:noteTag},resolved:false});
+    } else {
+      await addChatMessage('assistant', reply);
+    }
+  } catch(e) {
+    hideTyping();
+    document.getElementById('chat-subtitle').textContent = 'Готов помочь';
+    await addChatMessage('assistant','Ошибка соединения: '+e.message);
+  }
+}
+
+function checkRemindersOnOpen() {
+  if (!notes.length) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = notes.filter(n => {
+    if (n.tag!=='Reminder') return false;
+    const dm = n.text.match(/(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?/);
+    if (!dm) return false;
+    const year = dm[3]?parseInt(dm[3]):today.getFullYear();
+    const d = new Date(year, parseInt(dm[2])-1, parseInt(dm[1]));
+    d.setHours(0,0,0,0);
+    return d<=today;
+  });
+  if (due.length>0) {
+    addChatMessage('assistant','⏰ Привет! Напоминания на сегодня:\n\n'+due.map(r=>'• '+r.text).join('\n'));
+  } else if (chatHistory.length===0) {
+    addChatMessage('assistant','Привет, Алексей! 👋 Спроси меня что угодно — покажу что в базе, помогу разобрать записи или поставить задачу.');
+  }
+}
+
+window.clearChatHistory = async function() {
+  if (!confirm('Очистить историю чата?')) return;
+  await deleteChatHistory();
+  chatHistory = [];
+  renderChat();
+};
+
+// экспорт заметок
+window.exportNotes = async function() {
+  try {
+    const q = query(notesCol, orderBy('createdAt','asc'));
+    const snap = await getDocs(q);
+    const data = snap.docs.map(d => d.data());
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'hazenstein_notes_' + new Date().toISOString().slice(0,10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) { alert('Ошибка экспорта: ' + e.message); }
+};
+
+// голос в чате
+function createChatRecognition() {
+  const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const r = new SR();
+  r.lang='ru-RU'; r.continuous=false; r.interimResults=true;
+  r.onresult = (e) => {
+    let interim='';
+    for (let i=e.resultIndex;i<e.results.length;i++) {
+      if (e.results[i].isFinal) { const c=e.results[i][0].transcript.trim(); if(c) chatAccumulated=chatAccumulated?chatAccumulated+' '+c:c; }
+      else interim+=e.results[i][0].transcript;
+    }
+    document.getElementById('chat-input').value=chatAccumulated+(interim?(chatAccumulated?' ':'')+interim:'');
+    chatAutoResize();
+  };
+  r.onend=()=>{ if(isChatRecording){try{chatRecognition.start();}catch{}} };
+  r.onerror=(e)=>{ if(e.error==='aborted'||e.error==='no-speech')return; stopChatRecording(); };
+  return r;
+}
+function startChatRecording() {
+  chatAccumulated='';
+  document.getElementById('chat-input').value='';
+  chatRecognition=createChatRecognition();
+  if(!chatRecognition)return;
+  isChatRecording=true;
+  document.getElementById('chat-mic').classList.add('recording');
+  try{chatRecognition.start();}catch{}
+}
+function stopChatRecording() {
+  isChatRecording=false;
+  document.getElementById('chat-mic').classList.remove('recording');
+  if(chatRecognition){try{chatRecognition.stop();}catch{} chatRecognition=null;}
+}
+function toggleChatRecording() {
+  if(isChatRecording){
+    stopChatRecording();
+    setTimeout(()=>{
+      const text=document.getElementById('chat-input').value.trim();
+      if(text){document.getElementById('chat-input').value='';chatAutoResize();sendChatMessage(text);}
+    },150);
+  } else { startChatRecording(); }
+}
+function chatAutoResize() {
+  const ta=document.getElementById('chat-input');
+  ta.style.height='auto';
+  ta.style.height=Math.min(ta.scrollHeight,120)+'px';
+}
+document.getElementById('chat-mic').addEventListener('click',toggleChatRecording);
+document.getElementById('chat-send').addEventListener('click',()=>{
+  const text=document.getElementById('chat-input').value.trim();
+  if(!text)return;
+  document.getElementById('chat-input').value='';
+  chatAutoResize();
+  sendChatMessage(text);
+});
+document.getElementById('chat-input').addEventListener('input',chatAutoResize);
+document.getElementById('chat-input').addEventListener('keydown',(e)=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('chat-send').click();}
+});
+
+
+loadChatHistory();
 loadNotes();
 </script>
 </body>
