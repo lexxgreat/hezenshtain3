@@ -895,13 +895,6 @@ async function loadChatHistory() {
   } catch { chatHistory = []; }
 }
 
-async function saveChatMessage(msg) {
-  try {
-    const docRef = await addDoc(chatCol, msg);
-    msg.id = docRef.id;
-  } catch(e) { console.error('chat save error', e); }
-}
-
 async function deleteChatHistory() {
   try {
     const snap = await getDocs(chatCol);
@@ -939,9 +932,6 @@ window.resolveConfirm = async function(idx, yes) {
   const m = chatHistory[idx];
   if (!m || !m.confirmData) return;
   m.confirmData.resolved = true;
-  if (m.id) {
-    try { await updateDoc(doc(db,'chat',m.id), {confirmData: m.confirmData}); } catch {}
-  }
   if (yes) {
     const nd = m.confirmData.note;
     try {
@@ -963,7 +953,12 @@ async function addChatMessage(role, content, confirmData) {
   const msg = { role, content, time: new Date().toISOString() };
   if (confirmData) msg.confirmData = confirmData;
   chatHistory.push(msg);
-  await saveChatMessage(msg);
+  // сохраняем в Firestore БЕЗ confirmData — кнопки только в памяти
+  const firestoreMsg = { role, content, time: msg.time };
+  try {
+    const docRef = await addDoc(chatCol, firestoreMsg);
+    msg.id = docRef.id;
+  } catch(e) { console.error('chat save error', e); }
   renderChat();
 }
 
