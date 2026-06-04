@@ -1095,14 +1095,27 @@ async function sendChatMessage(userText) {
       cleanReply = cleanReply.replace(doneMatch[0], '').trim();
     }
 
-    // [ДОБАВИТЬ: ...]
-    const addMatch = cleanReply.match(/\[ДОБАВИТЬ:\s*(.+?)(?:\s*\|\s*(\w+))?\]/);
+    // [ДОБАВИТЬ: текст | Тег] — поддержка кириллики и латиницы в теге
+    const addMatch = cleanReply.match(/\[ДОБАВИТЬ:\s*(.+?)\]/);
     if (addMatch) {
-      const noteText = addMatch[1].trim();
-      const noteTag = addMatch[2]?.trim() || null;
+      const full = addMatch[1].trim();
+      // разбиваем по | если есть
+      const pipeIdx = full.lastIndexOf('|');
+      let noteText, noteTag;
+      if (pipeIdx !== -1) {
+        noteText = full.slice(0, pipeIdx).trim();
+        noteTag = full.slice(pipeIdx + 1).trim() || null;
+      } else {
+        noteText = full;
+        noteTag = null;
+      }
+      // валидируем тег — только из разрешённого списка
+      const validTags = ['Задача','Цель','Идея','Дневник','Такси','Напоминание'];
+      if (noteTag && !validTags.includes(noteTag)) noteTag = null;
+
       cleanReply = cleanReply.replace(addMatch[0], '').trim();
-      await addChatMessage('assistant', cleanReply + (cleanReply ? '\n\n' : '') + 'Добавить в базу: «'+noteText+'»?',
-        {note:{text:noteText,tag:noteTag},resolved:false});
+      await addChatMessage('assistant', cleanReply + (cleanReply ? '\n\n' : '') + 'Добавить в базу: «'+noteText+'»' + (noteTag ? ' ['+noteTag+']' : '') + '?',
+        {note:{text:noteText, tag:noteTag}, resolved:false});
     } else {
       await addChatMessage('assistant', cleanReply || reply);
     }
