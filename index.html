@@ -882,6 +882,53 @@ const POLZA_KEY = 'pza_cThu2r1mJJ05nJQxKWEjbyrqgnTaNVxk';
 const POLZA_URL = 'https://api.polza.ai/api/v1/chat/completions';
 const CHAT_MODEL = 'openai/gpt-4o-mini';
 
+// ── ИНСТРУМЕНТЫ ДЛЯ ИИ (вместо ненадёжных текстовых тегов [ДОБАВИТЬ:...]) ──
+const CHAT_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'propose_note',
+      description: 'Предложить пользователю добавить новую запись (задачу, цель, идею, напоминание и т.д.) в базу. Запись НЕ сохраняется сразу — пользователю покажутся кнопки «Да/Нет», сохранение произойдёт только после подтверждения. Вызывай это вместо того, чтобы писать текстом «добавил» или «записал».',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Текст записи, который увидит пользователь и который сохранится в базу' },
+          tag: { type: 'string', enum: ['Задача','Цель','Идея','Дневник','Такси','Напоминание'], description: 'Категория записи' }
+        },
+        required: ['text','tag']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mark_done',
+      description: 'Пометить существующую задачу как выполненную. Вызывай только если пользователь явно подтвердил, что уже сделал задачу.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_text: { type: 'string', description: 'Текст задачи (или узнаваемая часть) для поиска в базе среди незакрытых задач' }
+        },
+        required: ['task_text']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_prompt',
+      description: 'Обновить долгосрочную инструкцию (промт) ассистента новым правилом. Вызывай ТОЛЬКО после явного подтверждения Алексея.',
+      parameters: {
+        type: 'object',
+        properties: {
+          rule: { type: 'string', description: 'Новое правило или инструкция на русском языке' }
+        },
+        required: ['rule']
+      }
+    }
+  }
+];
+
 let chatHistory = [];
 let chatRecognition = null;
 let isChatRecording = false;
@@ -1006,21 +1053,26 @@ ${notesContext||'(пока пусто)'}
 
 ═══ СТРОГИЕ ПРАВИЛА ═══
 
+ЕДИНСТВЕННЫЙ способ совершить действие — вызвать соответствующую функцию (tool call). Обычный текст ничего не сохраняет и не изменяет.
+
 ЗАПРЕЩЕНО:
-- Писать «✅ Добавлено», «✅ Выполнено», «Записал», «Добавил», «Внёс» и любые слова означающие что ты совершил действие — если не использовал соответствующий тег [ДОБАВИТЬ:] или [ВЫПОЛНЕНО:]
-- Писать тег или категорию через слеш в тексте заметки (например «задача | Задача» — НЕЛЬЗЯ)
-- Использовать тег Task — только «Задача»
-- Притворяться что добавил или выполнил что-то без тега
+- Писать «✅ Добавлено», «✅ Выполнено», «Записал», «Добавил», «Внёс», «Готово» и любые слова означающие что ты совершил действие — если ты не вызвал функцию в этом же ответе
+- Обещать что-то добавишь «сейчас» текстом вместо реального вызова функции
+- Писать тег через слеш в тексте (например «задача | Задача» — НЕЛЬЗЯ, тег передаётся только в поле tag функции)
 
-КОМАНДЫ (единственный способ совершить действие):
-→ [ДОБАВИТЬ: текст заметки | Тег] — добавить в базу. Тег только из списка: Задача, Цель, Идея, Дневник, Такси, Напоминание
-→ [ВЫПОЛНЕНО: текст задачи] — пометить задачу выполненной
-→ [ПРОМПТ: правило] — обновить промпт (только после явного подтверждения Алексея)
+КОГДА ВЫЗЫВАТЬ propose_note (предложить добавить запись):
+- Пользователь говорит о действии которое надо сделать («надо», «нужно», «сделать», «не забыть»), ставит задачу, формулирует цель или упоминает идею — сразу вызови propose_note с точным текстом и тегом
+- Это касается и случаев, когда идея или задача всплывает мимоходом в разговоре, а не только явной просьбы «добавь»
+- Вызов propose_note НЕ добавляет запись сразу — пользователю покажутся кнопки «Да/Нет», запись попадёт в базу только после его подтверждения. Поэтому можно вызывать функцию сразу, не дожидаясь отдельного «да» — это и есть шаг уточнения
+- НЕ вызывай если: болтовня, вопрос, ответ «да/нет» без контекста, обсуждение без конкретики, или похожая незакрытая запись уже точно есть в базе
+- Тег строго из списка: Задача, Цель, Идея, Дневник, Такси, Напоминание
 
-КОГДА ПРЕДЛАГАТЬ ДОБАВИТЬ:
-- Пользователь говорит о действии которое надо сделать («надо», «нужно», «сделать», «не забыть»)
-- Ставит задачу, формулирует цель или намерение
-НЕ предлагай если: болтовня, вопрос, ответ «да/нет», обсуждение без конкретики
+КОГДА ВЫЗЫВАТЬ mark_done:
+- Только когда пользователь явно подтвердил, что уже сделал задачу
+- Не более одной задачи за раз
+
+КОГДА ВЫЗЫВАТЬ update_prompt:
+- Только после явного подтверждения Алексея в диалоге (например он написал «да» в ответ на твой вопрос про изменение инструкций)
 
 КОГДА СПРАШИВАТЬ «ТЫ СДЕЛАЛ X?»:
 - Только если в базе есть незакрытые задачи (тег Задача, без done:true) и прошло время
@@ -1041,12 +1093,13 @@ async function sendChatMessage(userText) {
 
   // проверяем: есть ли pending confirm и пользователь отвечает «да»
   const lastAI = [...chatHistory].reverse().find(m => m.role === 'assistant' && m.confirmData && !m.confirmData.resolved);
-  if (lastAI && /^(да|добавь|добавить|ок|окей|yes|ага|давай)$/i.test(userText.trim())) {
+  const normalized = userText.trim().toLowerCase().replace(/[.,!?\s]+$/g, '');
+  if (lastAI && /^(да|добавь|добавить|ок|окей|okay|yes|ага|угу|давай|подтверждаю)(\s.*)?$/i.test(normalized)) {
     await addChatMessage('user', userText);
     await resolveConfirm(chatHistory.indexOf(lastAI), true);
     return;
   }
-  if (lastAI && /^(нет|не надо|не добавляй|отмена|no)$/i.test(userText.trim())) {
+  if (lastAI && /^(нет|не надо|не добавляй|отмена|no|не нужно)(\s.*)?$/i.test(normalized)) {
     await addChatMessage('user', userText);
     await resolveConfirm(chatHistory.indexOf(lastAI), false);
     return;
@@ -1063,61 +1116,60 @@ async function sendChatMessage(userText) {
     const res = await fetch(POLZA_URL, {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+POLZA_KEY},
-      body: JSON.stringify({model:CHAT_MODEL, max_tokens:700, messages:apiMessages})
+      body: JSON.stringify({
+        model: CHAT_MODEL, max_tokens: 700, messages: apiMessages,
+        tools: CHAT_TOOLS, tool_choice: 'auto'
+      })
     });
     const data = await res.json();
     hideTyping();
     document.getElementById('chat-subtitle').textContent = 'Готов помочь';
-    const reply = data.choices?.[0]?.message?.content || 'Нет ответа';
 
-    // обрабатываем все команды в ответе
-    let cleanReply = reply;
+    const message = data.choices?.[0]?.message;
+    if (!message) { await addChatMessage('assistant', 'Нет ответа'); return; }
 
-    // [ПРОМПТ: ...]
-    const promptMatch = reply.match(/\[ПРОМПТ:\s*(.+?)\]/s);
-    if (promptMatch) {
-      const newRule = promptMatch[1].trim();
-      const updated = customPromptAddition ? customPromptAddition + '\n' + newRule : newRule;
-      await saveCustomPrompt(updated);
-      cleanReply = cleanReply.replace(promptMatch[0], '').trim();
+    const toolCalls = message.tool_calls || [];
+    let proposedNote = null;
+    let doneTarget = null;
+    let promptRule = null;
+
+    for (const call of toolCalls) {
+      let args = {};
+      try { args = JSON.parse(call.function.arguments || '{}'); } catch(e) {}
+      if (call.function.name === 'propose_note' && !proposedNote) {
+        proposedNote = args; // берём только первую предложенную запись за раз
+      } else if (call.function.name === 'mark_done' && !doneTarget) {
+        doneTarget = args.task_text;
+      } else if (call.function.name === 'update_prompt' && !promptRule) {
+        promptRule = args.rule;
+      }
     }
 
-    // [ВЫПОЛНЕНО: ...]
-    const doneMatch = reply.match(/\[ВЫПОЛНЕНО:\s*(.+?)\]/);
-    if (doneMatch) {
-      const target = doneMatch[1].trim();
-      // ищем задачу по тексту
-      const task = notes.find(n => n.tag === 'Задача' && n.text.toLowerCase().includes(target.toLowerCase()) && !n.done);
+    // выполнение отметки задачи выполненной — сразу, без подтверждения (как и раньше)
+    if (doneTarget) {
+      const task = notes.find(n => n.tag === 'Задача' && n.text.toLowerCase().includes(doneTarget.toLowerCase()) && !n.done);
       if (task) {
         await updateDoc(doc(db, 'notes', task.id), { done: true });
         await loadNotes();
       }
-      cleanReply = cleanReply.replace(doneMatch[0], '').trim();
     }
 
-    // [ДОБАВИТЬ: текст | Тег] — поддержка кириллики и латиницы в теге
-    const addMatch = cleanReply.match(/\[ДОБАВИТЬ:\s*(.+?)\]/);
-    if (addMatch) {
-      const full = addMatch[1].trim();
-      // разбиваем по | если есть
-      const pipeIdx = full.lastIndexOf('|');
-      let noteText, noteTag;
-      if (pipeIdx !== -1) {
-        noteText = full.slice(0, pipeIdx).trim();
-        noteTag = full.slice(pipeIdx + 1).trim() || null;
-      } else {
-        noteText = full;
-        noteTag = null;
-      }
-      // валидируем тег — только из разрешённого списка
-      const validTags = ['Задача','Цель','Идея','Дневник','Такси','Напоминание'];
-      if (noteTag && !validTags.includes(noteTag)) noteTag = null;
+    // обновление промпта — сразу (модель вызывает это только после подтверждения по инструкции)
+    if (promptRule) {
+      const updated = customPromptAddition ? customPromptAddition + '\n' + promptRule : promptRule;
+      await saveCustomPrompt(updated);
+    }
 
-      cleanReply = cleanReply.replace(addMatch[0], '').trim();
-      await addChatMessage('assistant', cleanReply + (cleanReply ? '\n\n' : '') + 'Добавить в базу: «'+noteText+'»' + (noteTag ? ' ['+noteTag+']' : '') + '?',
-        {note:{text:noteText, tag:noteTag}, resolved:false});
+    const replyText = (message.content || '').trim();
+
+    if (proposedNote && proposedNote.text) {
+      const validTags = ['Задача','Цель','Идея','Дневник','Такси','Напоминание'];
+      const tag = validTags.includes(proposedNote.tag) ? proposedNote.tag : null;
+      const confirmText = (replyText ? replyText + '\n\n' : '') +
+        'Добавить в базу: «' + proposedNote.text + '»' + (tag ? ' [' + tag + ']' : '') + '?';
+      await addChatMessage('assistant', confirmText, { note: { text: proposedNote.text, tag }, resolved: false });
     } else {
-      await addChatMessage('assistant', cleanReply || reply);
+      await addChatMessage('assistant', replyText || 'Хорошо.');
     }
   } catch(e) {
     hideTyping();
