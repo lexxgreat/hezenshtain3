@@ -388,11 +388,9 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     </div>
 
     <!-- Quick tags -->
-    <div class="qtags">
-      <button class="qtag" onclick="setTag('Задача')"><span class="qtag-icon">✅</span><span class="qtag-label">Задача</span></button>
-      <button class="qtag" onclick="setTag('Цель')"><span class="qtag-icon">🎯</span><span class="qtag-label">Цель</span></button>
-      <button class="qtag" onclick="setTag('Идея')"><span class="qtag-icon">💡</span><span class="qtag-label">Идея</span></button>
-      <button class="qtag" onclick="setTag('Дневник')"><span class="qtag-icon">📓</span><span class="qtag-label">Дневник</span></button>
+    <div class="qtags" id="qtags-list"></div>
+    <div style="display:flex;justify-content:center;padding:4px 16px 0;">
+      <button onclick="goTo('tags')" style="background:none;border:none;color:rgba(255,255,255,0.3);font-size:11px;cursor:pointer;font-family:'Inter',sans-serif;padding:4px 8px;">⚙️ Управление тегами</button>
     </div>
 
     <!-- Big chaos button -->
@@ -530,6 +528,29 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     </div>
   </div>
 
+  <!-- ── TAGS SCREEN ── -->
+  <div class="screen" id="screen-tags">
+    <div class="chat-header">
+      <button class="chat-clear-btn" onclick="goTo('main')" title="Назад">←</button>
+      <div class="chat-title-wrap">
+        <div class="chat-title">Теги</div>
+        <div class="chat-subtitle" id="tags-count">0 тегов</div>
+      </div>
+    </div>
+    <div class="hist-list" id="tags-list" style="padding:16px;overflow-y:auto;flex:1;"></div>
+    <div class="chat-input-wrap">
+      <div class="chat-input-row">
+        <input class="chat-textarea" id="tag-icon-input" placeholder="🚕" maxlength="4" style="flex:0 0 52px;text-align:center;">
+        <textarea class="chat-textarea" id="tag-label-input" placeholder="Название тега..." rows="1"></textarea>
+        <button class="chat-send-btn" id="tag-add-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,0.95)" stroke-width="2" stroke-linecap="round">
+            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="rgba(139,92,246,0.95)" stroke="none"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- DOCK -->
   <div class="dock">
     <button class="dock-item active" id="dock-main" onclick="goTo('main')">
@@ -627,6 +648,78 @@ window.renderPromptRules = renderPromptRules;
 let notes = [];
 let editingId = null;
 let activeTag = null;
+
+// ── ТЕГИ (единый источник для главного экрана и ИИ в чате) ──
+const tagsCol = collection(db, "tags");
+let tags = []; // [{id, label, icon, createdAt}]
+
+const DEFAULT_TAGS = [
+  { label: 'Такси', icon: '🚕' },
+  { label: 'Работа', icon: '📢' },
+  { label: 'Хэзэнштейн', icon: '💻' },
+  { label: 'Семья', icon: '👨‍👩‍👧' },
+  { label: 'Здоровье', icon: '🧠' },
+  { label: 'Быт', icon: '🏠' },
+  { label: 'Мысли', icon: '💭' }
+];
+
+async function loadTags() {
+  try {
+    const q = query(tagsCol, orderBy('createdAt', 'asc'));
+    const snap = await getDocs(q);
+    tags = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (tags.length === 0) {
+      // первый запуск — засеваем дефолтный набор
+      for (const t of DEFAULT_TAGS) {
+        await addTag(t.label, t.icon);
+      }
+    }
+  } catch(e) { console.error('tags load error', e); }
+}
+
+async function addTag(label, icon) {
+  if (!label.trim()) return;
+  try {
+    const ref = await addDoc(tagsCol, { label: label.trim(), icon: icon || '🏷️', createdAt: new Date().toISOString() });
+    tags.push({ id: ref.id, label: label.trim(), icon: icon || '🏷️', createdAt: new Date().toISOString() });
+    renderQuickTags();
+    renderTagsScreen();
+  } catch(e) { console.error('tag add error', e); }
+}
+
+async function deleteTag(id) {
+  try {
+    await deleteDoc(doc(db, 'tags', id));
+    tags = tags.filter(t => t.id !== id);
+    renderQuickTags();
+    renderTagsScreen();
+  } catch(e) { console.error('tag delete error', e); }
+}
+window.deleteTag = deleteTag;
+
+function renderQuickTags() {
+  const el = document.getElementById('qtags-list');
+  if (!el) return;
+  el.innerHTML = tags.map(t => `<button class="qtag" onclick="setTag('${t.label}')"><span class="qtag-icon">${t.icon}</span><span class="qtag-label">${t.label}</span></button>`).join('');
+}
+
+function renderTagsScreen() {
+  const el = document.getElementById('tags-list');
+  if (!el) return;
+  document.getElementById('tags-count').textContent = tags.length + ' тегов';
+  if (!tags.length) {
+    el.innerHTML = '<div class="hist-empty"><div class="hist-empty-icon">🏷️</div>Пока нет тегов</div>';
+    return;
+  }
+  el.innerHTML = tags.map(t => `
+    <div class="note-card">
+      <div class="note-text" style="font-size:15px;">${t.icon} ${t.label}</div>
+      <div class="note-actions">
+        <button class="note-btn note-undone" onclick="deleteTag('${t.id}')">✕ Удалить</button>
+      </div>
+    </div>
+  `).join('');
+}
 
 // ── РЕЧЬ ──
 let recognition = null;
@@ -961,6 +1054,7 @@ function goTo(screen) {
   if (screen === 'hist') loadNotes();
   if (screen === 'chat') { renderChat(); checkRemindersOnOpen(); }
   if (screen === 'prompt') renderPromptRules();
+  if (screen === 'tags') renderTagsScreen();
 }
 window.goTo = goTo;
 
@@ -1013,7 +1107,10 @@ const POLZA_URL = 'https://api.polza.ai/api/v1/chat/completions';
 const CHAT_MODEL = 'openai/gpt-4o-mini';
 
 // ── ИНСТРУМЕНТЫ ДЛЯ ИИ (вместо ненадёжных текстовых тегов [ДОБАВИТЬ:...]) ──
-const CHAT_TOOLS = [
+// tag enum строится динамически из tags[] — единый источник с главным экраном и экраном "Теги"
+function buildChatTools() {
+  const tagLabels = tags.length ? tags.map(t => t.label) : ['Задача','Цель','Идея','Дневник'];
+  return [
   {
     type: 'function',
     function: {
@@ -1023,7 +1120,7 @@ const CHAT_TOOLS = [
         type: 'object',
         properties: {
           text: { type: 'string', description: 'Текст записи, который увидит пользователь и который сохранится в базу' },
-          tag: { type: 'string', enum: ['Задача','Цель','Идея','Дневник','Такси','Напоминание'], description: 'Категория записи' }
+          tag: { type: 'string', enum: tagLabels, description: 'Сфера жизни, к которой относится запись' }
         },
         required: ['text','tag']
       }
@@ -1057,7 +1154,8 @@ const CHAT_TOOLS = [
       }
     }
   }
-];
+  ];
+}
 
 let chatHistory = [];
 let chatRecognition = null;
@@ -1195,7 +1293,7 @@ ${notesContext||'(пока пусто)'}
 - Это касается и случаев, когда идея или задача всплывает мимоходом в разговоре, а не только явной просьбы «добавь»
 - Вызов propose_note НЕ добавляет запись сразу — пользователю покажутся кнопки «Да/Нет», запись попадёт в базу только после его подтверждения. Поэтому можно вызывать функцию сразу, не дожидаясь отдельного «да» — это и есть шаг уточнения
 - НЕ вызывай если: болтовня, вопрос, ответ «да/нет» без контекста, обсуждение без конкретики, или похожая незакрытая запись уже точно есть в базе
-- Тег строго из списка: Задача, Цель, Идея, Дневник, Такси, Напоминание
+- tag — это СФЕРА ЖИЗНИ, к которой относится запись (не тип записи). Выбирай строго из значений enum поля tag — этот список настраивается пользователем в приложении и может меняться
 
 КОГДА ВЫЗЫВАТЬ mark_done:
 - Только когда пользователь явно подтвердил, что уже сделал задачу
@@ -1206,7 +1304,7 @@ ${notesContext||'(пока пусто)'}
 - rule должен быть краткой самостоятельной формулировкой (одна мысль/факт/правило) — он добавится отдельной строкой в список инструкций, который Алексей видит и может редактировать в приложении на экране «Промпт»
 
 КОГДА СПРАШИВАТЬ «ТЫ СДЕЛАЛ X?»:
-- Только если в базе есть незакрытые задачи (тег Задача, без done:true) и прошло время
+- Только если в базе есть записи, похожие на конкретное невыполненное дело (без done:true), и прошло разумное время
 - Не более одной задачи за раз
 
 ВОПРОСЫ О БАЗЕ:
@@ -1249,7 +1347,7 @@ async function sendChatMessage(userText) {
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+POLZA_KEY},
       body: JSON.stringify({
         model: CHAT_MODEL, max_tokens: 700, messages: apiMessages,
-        tools: CHAT_TOOLS, tool_choice: 'auto'
+        tools: buildChatTools(), tool_choice: 'auto'
       })
     });
     const data = await res.json();
@@ -1293,7 +1391,7 @@ async function sendChatMessage(userText) {
     const replyText = (message.content || '').trim();
 
     if (proposedNote && proposedNote.text) {
-      const validTags = ['Задача','Цель','Идея','Дневник','Такси','Напоминание'];
+      const validTags = tags.map(t => t.label);
       const tag = validTags.includes(proposedNote.tag) ? proposedNote.tag : null;
       const confirmText = (replyText ? replyText + '\n\n' : '') +
         'Добавить в базу: «' + proposedNote.text + '»' + (tag ? ' [' + tag + ']' : '') + '?';
@@ -1421,7 +1519,22 @@ document.getElementById('prompt-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('prompt-add-btn').click(); }
 });
 
+document.getElementById('tag-add-btn').addEventListener('click', () => {
+  const iconInput = document.getElementById('tag-icon-input');
+  const labelInput = document.getElementById('tag-label-input');
+  const label = labelInput.value.trim();
+  if (!label) return;
+  const icon = iconInput.value.trim() || '🏷️';
+  iconInput.value = '';
+  labelInput.value = '';
+  addTag(label, icon);
+});
+document.getElementById('tag-label-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('tag-add-btn').click(); }
+});
+
 loadPromptRules().then(renderPromptRules);
+loadTags().then(() => { renderQuickTags(); renderTagsScreen(); });
 loadChatHistory();
 loadNotes();
 </script>
