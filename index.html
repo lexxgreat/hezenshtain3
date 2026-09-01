@@ -578,7 +578,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 <!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, orderBy, query, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAm5Sr2UO0PfKMe3YFkQ_XsWonKUMGDOKo",
@@ -668,11 +668,20 @@ async function loadTags() {
     const q = query(tagsCol, orderBy('createdAt', 'asc'));
     const snap = await getDocs(q);
     tags = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (tags.length === 0) {
-      // первый запуск — засеваем дефолтный набор
+
+    // Сидирование дефолтных тегов — гарантированно один раз (флаг в meta),
+    // устойчиво к обрыву посреди загрузки, и НЕ восстанавливает теги,
+    // которые пользователь сознательно удалил после завершённого сидирования.
+    const metaSnap = await getDocs(collection(db, 'meta'));
+    const seedFlag = metaSnap.docs.find(d => d.id === 'tags_seed');
+    if (!seedFlag || seedFlag.data().done !== true) {
+      const existingLabels = new Set(tags.map(t => t.label));
       for (const t of DEFAULT_TAGS) {
-        await addTag(t.label, t.icon);
+        if (!existingLabels.has(t.label)) {
+          await addTag(t.label, t.icon);
+        }
       }
+      await setDoc(doc(db, 'meta', 'tags_seed'), { done: true });
     }
   } catch(e) { console.error('tags load error', e); }
 }
