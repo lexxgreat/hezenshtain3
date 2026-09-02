@@ -540,8 +540,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     <div class="hist-list" id="tags-list" style="padding:16px;overflow-y:auto;flex:1;"></div>
     <div class="chat-input-wrap">
       <div class="chat-input-row">
-        <input class="chat-textarea" id="tag-icon-input" placeholder="🚕" maxlength="4" style="flex:0 0 52px;text-align:center;">
-        <textarea class="chat-textarea" id="tag-label-input" placeholder="Название тега..." rows="1"></textarea>
+        <textarea class="chat-textarea" id="tag-input" placeholder="🚕 Название тега..." rows="1"></textarea>
         <button class="chat-send-btn" id="tag-add-btn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,0.95)" stroke-width="2" stroke-linecap="round">
             <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="rgba(139,92,246,0.95)" stroke="none"/>
@@ -1548,16 +1547,20 @@ document.getElementById('prompt-input').addEventListener('keydown', (e) => {
 });
 
 document.getElementById('tag-add-btn').addEventListener('click', () => {
-  const iconInput = document.getElementById('tag-icon-input');
-  const labelInput = document.getElementById('tag-label-input');
-  const label = labelInput.value.trim();
-  if (!label) return;
-  const icon = iconInput.value.trim() || '🏷️';
-  iconInput.value = '';
-  labelInput.value = '';
+  const input = document.getElementById('tag-input');
+  const raw = input.value.trim();
+  if (!raw) return;
+  input.value = '';
+  // "🚕 Такси" → иконка + название; "Такси" → иконка по умолчанию
+  const parts = raw.split(/\s+/);
+  let icon = '🏷️', label = raw;
+  if (parts.length > 1 && /^\p{Extended_Pictographic}/u.test(parts[0])) {
+    icon = parts[0];
+    label = parts.slice(1).join(' ');
+  }
   addTag(label, icon);
 });
-document.getElementById('tag-label-input').addEventListener('keydown', (e) => {
+document.getElementById('tag-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('tag-add-btn').click(); }
 });
 
