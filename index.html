@@ -611,7 +611,7 @@ async function addPromptRule(text, source) {
     const ref = await addDoc(promptRulesCol, { text: text.trim(), source: source || 'manual', createdAt: new Date().toISOString() });
     promptRules.push({ id: ref.id, text: text.trim(), source: source || 'manual', createdAt: new Date().toISOString() });
     renderPromptRules();
-  } catch(e) { console.error('prompt rule add error', e); }
+  } catch(e) { console.error('prompt rule add error', e); alert('Не удалось сохранить правило: ' + e.message + '\n\nПроверь правила доступа Firestore для коллекции "promptRules"'); }
 }
 
 async function deletePromptRule(id) {
@@ -627,11 +627,22 @@ function renderPromptRules() {
   const el = document.getElementById('prompt-list');
   if (!el) return;
   document.getElementById('prompt-count').textContent = promptRules.length + ' правил';
+
+  const baseBlock = `
+    <details style="margin-bottom:16px;">
+      <summary style="cursor:pointer;color:rgba(255,255,255,0.5);font-size:12.5px;padding:8px 0;">📋 Базовая инструкция (только просмотр)</summary>
+      <div class="note-card" style="margin-top:8px;">
+        <div class="note-text" style="white-space:pre-wrap;font-size:12.5px;">${escHtml(getBaseInstructions())}</div>
+      </div>
+    </details>
+    <div style="color:rgba(255,255,255,0.35);font-size:11px;padding:0 0 10px;">Твои личные дополнения (можно удалять):</div>
+  `;
+
   if (!promptRules.length) {
-    el.innerHTML = '<div class="hist-empty"><div class="hist-empty-icon">📝</div>Пока нет дополнений к промпту</div>';
+    el.innerHTML = baseBlock + '<div class="hist-empty"><div class="hist-empty-icon">📝</div>Пока нет дополнений к промпту</div>';
     return;
   }
-  el.innerHTML = promptRules.map(r => `
+  el.innerHTML = baseBlock + promptRules.map(r => `
     <div class="note-card">
       <div class="note-meta">
         <span class="note-date">${r.source === 'chat' ? '💬 из чата' : '✍️ вручную'}</span>
@@ -683,7 +694,11 @@ async function loadTags() {
       }
       await setDoc(doc(db, 'meta', 'tags_seed'), { done: true });
     }
-  } catch(e) { console.error('tags load error', e); }
+  } catch(e) {
+    console.error('tags load error', e);
+    const el = document.getElementById('tags-list');
+    if (el) el.innerHTML = '<div class="hist-empty">⚠️ Ошибка загрузки тегов: ' + e.message + '<br>Проверь правила доступа Firestore для коллекции "tags"</div>';
+  }
 }
 
 async function addTag(label, icon) {
@@ -693,7 +708,7 @@ async function addTag(label, icon) {
     tags.push({ id: ref.id, label: label.trim(), icon: icon || '🏷️', createdAt: new Date().toISOString() });
     renderQuickTags();
     renderTagsScreen();
-  } catch(e) { console.error('tag add error', e); }
+  } catch(e) { console.error('tag add error', e); alert('Не удалось сохранить тег: ' + e.message + '\n\nПроверь правила доступа Firestore для коллекции "tags"'); }
 }
 
 async function deleteTag(id) {
@@ -1272,23 +1287,8 @@ function toMoscow(isoStr) {
   return `${day} ${mon} ${h}:${m}`;
 }
 
-function buildSystemPrompt() {
-  const now = new Date();
-  now.setTime(now.getTime() + 3 * 60 * 60 * 1000);
-  const days = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
-  const months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-  const todayStr = `${days[now.getUTCDay()]}, ${now.getUTCDate()} ${months[now.getUTCMonth()]} ${now.getUTCFullYear()}, ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')} (МСК)`;
-
-  const notesContext = notes.slice(0,100).map(n => {
-    return `[${toMoscow(n.createdAt)} МСК${n.tag?' | '+n.tag:''}] ${n.text}`;
-  }).join('\n');
-
-  return `Ты — личный ИИ-ассистент Алексея в приложении Hazenstein. Сейчас: ${todayStr}.
-
-БАЗА ДАННЫХ (все записи, время московское):
-${notesContext||'(пока пусто)'}
-
-═══ СТРОГИЕ ПРАВИЛА ═══
+function getBaseInstructions() {
+  return `═══ СТРОГИЕ ПРАВИЛА ═══
 
 ЕДИНСТВЕННЫЙ способ совершить действие — вызвать соответствующую функцию (tool call). Обычный текст ничего не сохраняет и не изменяет.
 
@@ -1319,7 +1319,26 @@ ${notesContext||'(пока пусто)'}
 ВОПРОСЫ О БАЗЕ:
 - Время записи = время события (добавил «начал таксовать» в 07:19 → начал в 07:19)
 - Для расчёта времени ищи пары «начал/закончил» по времени записи
-- Саммари дня: группируй по категориям, считай время и деньги
+- Саммари дня: группируй по категориям, считай время и деньги`;
+}
+
+function buildSystemPrompt() {
+  const now = new Date();
+  now.setTime(now.getTime() + 3 * 60 * 60 * 1000);
+  const days = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+  const months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  const todayStr = `${days[now.getUTCDay()]}, ${now.getUTCDate()} ${months[now.getUTCMonth()]} ${now.getUTCFullYear()}, ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')} (МСК)`;
+
+  const notesContext = notes.slice(0,100).map(n => {
+    return `[${toMoscow(n.createdAt)} МСК${n.tag?' | '+n.tag:''}] ${n.text}`;
+  }).join('\n');
+
+  return `Ты — личный ИИ-ассистент Алексея в приложении Hazenstein. Сейчас: ${todayStr}.
+
+БАЗА ДАННЫХ (все записи, время московское):
+${notesContext||'(пока пусто)'}
+
+${getBaseInstructions()}
 
 ${promptRules.length ? 'ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОТ АЛЕКСЕЯ:\n' + promptRules.map(r => '- ' + r.text).join('\n') : ''}
 
