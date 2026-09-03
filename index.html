@@ -280,14 +280,14 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 /* ── DOCK ── */
 .dock{
   display:flex;align-items:center;justify-content:space-around;
-  padding:8px 20px 26px;
+  padding:8px 8px 26px;
   background:rgba(255,255,255,0.02);
   border-top:0.5px solid rgba(255,255,255,0.06);
   flex-shrink:0;position:relative;z-index:3;
 }
 .dock-item{
   display:flex;flex-direction:column;align-items:center;gap:4px;
-  cursor:pointer;padding:7px 18px;border-radius:16px;
+  cursor:pointer;padding:7px 10px;border-radius:16px;
   background:transparent;border:none;font-family:'Inter',sans-serif;
   position:relative;transition:all 0.2s;
 }
@@ -430,6 +430,21 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     </div>
   </div>
 
+  <!-- ── TODO SCREEN ── -->
+  <div class="screen" id="screen-todo">
+    <div class="hist-header">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="hist-title">Тудушка</div>
+          <div class="hist-sub" id="todo-count">Загрузка...</div>
+        </div>
+      </div>
+    </div>
+    <div class="hist-list" id="todo-list" style="padding-top:8px;">
+      <div class="hist-empty"><div class="hist-empty-icon">📋</div>Список пуст — добавь задачи из Истории кнопкой «В тудулист»</div>
+    </div>
+  </div>
+
   <!-- ── HISTORY SCREEN ── -->
   <div class="screen" id="screen-hist">
     <div class="hist-header">
@@ -558,6 +573,12 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
         <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>
       </svg>
       <span>Главная</span>
+    </button>
+    <button class="dock-item" id="dock-todo" onclick="goTo('todo')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+        <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+      </svg>
+      <span>Тудушка</span>
     </button>
     <button class="dock-item" id="dock-hist" onclick="goTo('hist')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
@@ -909,6 +930,7 @@ async function loadNotes() {
     const snap = await getDocs(q);
     notes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     filterNotes(); // рендерим с учётом активного фильтра по дате/поиску
+    renderTodo(); // тудушка всегда синхронна с общей базой записей
   } catch(e) {
     document.getElementById('hist-list').innerHTML = '<div class="hist-empty"><div>⚠️</div>Ошибка загрузки</div>';
   }
@@ -936,6 +958,8 @@ function renderNotes(list) {
     }
     // MVP: кнопка "Выполнено" доступна для ЛЮБОЙ записи, а не только с тегом "Задача"
     const doneBtn = `<button class="note-btn ${isDone ? 'note-undone' : 'note-done'}" onclick="toggleDone('${n.id}', ${isDone})">${isDone ? '↩ Открыть' : '✓ Выполнено'}</button>`;
+    const isInTodo = n.inTodo === true;
+    const todoBtn = `<button class="note-btn ${isInTodo ? 'note-undone' : 'note-edit'}" onclick="toggleTodo('${n.id}', ${isInTodo})">${isInTodo ? '✕ Убрать из тудулиста' : '➜ В тудулист'}</button>`;
     return `
       <div class="note-card" style="${cardStyle}">
         <div class="note-meta">
@@ -945,6 +969,7 @@ function renderNotes(list) {
         <div class="note-text" style="${textStyle}">${escHtml(n.text)}</div>
         <div class="note-actions">
           ${doneBtn}
+          ${todoBtn}
           <button class="note-btn note-edit" onclick="openEdit('${n.id}')">Редактировать</button>
           <button class="note-btn note-del" onclick="deleteNote('${n.id}')">Удалить</button>
         </div>
@@ -1052,6 +1077,63 @@ async function toggleDone(id, currentDone) {
 }
 window.toggleDone = toggleDone;
 
+// ── ТУДУШКА (надстройка над теми же записями, без дублирования данных) ──
+async function toggleTodo(id, currentInTodo) {
+  try {
+    const willBeInTodo = !currentInTodo;
+    const update = { inTodo: willBeInTodo };
+    if (willBeInTodo) {
+      // ставим в конец очереди — максимальный существующий todoOrder + 1
+      const maxOrder = notes.reduce((m, n) => n.inTodo ? Math.max(m, n.todoOrder || 0) : m, 0);
+      update.todoOrder = maxOrder + 1;
+    }
+    await updateDoc(doc(db, 'notes', id), update);
+    await loadNotes();
+  } catch(e) { alert('Ошибка: ' + e.message); }
+}
+window.toggleTodo = toggleTodo;
+
+async function moveTodo(id, direction) {
+  // direction: -1 (вверх) или +1 (вниз)
+  const queue = notes.filter(n => n.inTodo === true && !n.done).sort((a,b) => (a.todoOrder||0) - (b.todoOrder||0));
+  const idx = queue.findIndex(n => n.id === id);
+  const swapIdx = idx + direction;
+  if (idx === -1 || swapIdx < 0 || swapIdx >= queue.length) return;
+  const a = queue[idx], b = queue[swapIdx];
+  const aOrder = a.todoOrder || 0, bOrder = b.todoOrder || 0;
+  try {
+    await updateDoc(doc(db, 'notes', a.id), { todoOrder: bOrder });
+    await updateDoc(doc(db, 'notes', b.id), { todoOrder: aOrder });
+    await loadNotes();
+  } catch(e) { alert('Ошибка: ' + e.message); }
+}
+window.moveTodo = moveTodo;
+
+function renderTodo() {
+  const el = document.getElementById('todo-list');
+  if (!el) return;
+  const queue = notes.filter(n => n.inTodo === true && !n.done).sort((a,b) => (a.todoOrder||0) - (b.todoOrder||0));
+  document.getElementById('todo-count').textContent = queue.length + ' в очереди';
+  if (!queue.length) {
+    el.innerHTML = '<div class="hist-empty"><div class="hist-empty-icon">📋</div>Список пуст — добавь задачи из Истории кнопкой «В тудулист»</div>';
+    return;
+  }
+  el.innerHTML = queue.map((n, i) => `
+    <div class="note-card">
+      <div class="note-meta">
+        <span class="note-date">#${i+1}${n.tag ? ' · ' + n.tag : ''}</span>
+      </div>
+      <div class="note-text">${escHtml(n.text)}</div>
+      <div class="note-actions">
+        <button class="note-btn note-done" onclick="toggleDone('${n.id}', false)">✓ Выполнено</button>
+        <button class="note-btn note-edit" onclick="moveTodo('${n.id}', -1)" ${i===0 ? 'disabled style="opacity:0.3;"' : ''}>▲</button>
+        <button class="note-btn note-edit" onclick="moveTodo('${n.id}', 1)" ${i===queue.length-1 ? 'disabled style="opacity:0.3;"' : ''}>▼</button>
+        <button class="note-btn note-undone" onclick="toggleTodo('${n.id}', true)">✕ Убрать</button>
+      </div>
+    </div>
+  `).join('');
+}
+
 // экспорт чата
 window.exportChat = async function() {
   try {
@@ -1075,6 +1157,7 @@ function goTo(screen) {
   const dockBtn = document.getElementById('dock-' + screen);
   if (dockBtn) dockBtn.classList.add('active');
   if (screen === 'hist') loadNotes();
+  if (screen === 'todo') loadNotes();
   if (screen === 'chat') { renderChat(); checkRemindersOnOpen(); }
   if (screen === 'prompt') renderPromptRules();
   if (screen === 'tags') renderTagsScreen();
