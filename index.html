@@ -1443,7 +1443,12 @@ function getBaseInstructions() {
 ВОПРОСЫ О БАЗЕ:
 - Время записи = время события (добавил «начал таксовать» в 07:19 → начал в 07:19)
 - Для расчёта времени ищи пары «начал/закончил» по времени записи
-- Саммари дня: группируй по категориям, считай время и деньги`;
+- Саммари дня: группируй по категориям, считай время и деньги
+
+ВОПРОСЫ ПРО ЗАДАЧИ («какие задачи есть», «что делать», «что сейчас важно»):
+- Отвечай на основе раздела ТУДУШКА выше — это актуальная очередь дел, а не вся база
+- НЕ упоминай записи с пометкой [ВЫПОЛНЕНО] как то, что предстоит сделать
+- Если ТУДУШКА пуста — так и скажи, а не подменяй ответ случайными записями из общей базы`;
 }
 
 function buildSystemPrompt() {
@@ -1454,12 +1459,21 @@ function buildSystemPrompt() {
   const todayStr = `${days[now.getUTCDay()]}, ${now.getUTCDate()} ${months[now.getUTCMonth()]} ${now.getUTCFullYear()}, ${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')} (МСК)`;
 
   const notesContext = notes.slice(0,100).map(n => {
-    return `[${toMoscow(n.createdAt)} МСК${n.tag?' | '+n.tag:''}] ${n.text}`;
+    const status = n.done ? ' [ВЫПОЛНЕНО]' : '';
+    return `[${toMoscow(n.createdAt)} МСК${n.tag?' | '+n.tag:''}]${status} ${n.text}`;
   }).join('\n');
+
+  const todoQueue = getTodoQueue();
+  const todoContext = todoQueue.length
+    ? todoQueue.map((n, i) => `${i+1}. ${n.text}${n.tag ? ' ('+n.tag+')' : ''}`).join('\n')
+    : '(пусто — ничего не поставлено в очередь на выполнение сейчас)';
 
   return `Ты — личный ИИ-ассистент Алексея в приложении Hazenstein. Сейчас: ${todayStr}.
 
-БАЗА ДАННЫХ (все записи, время московское):
+ТУДУШКА (текущая очередь дел на выполнение прямо сейчас, по приоритету — пункт 1 самый первостепенный):
+${todoContext}
+
+БАЗА ДАННЫХ (все записи, время московское; [ВЫПОЛНЕНО] — задача уже закрыта):
 ${notesContext||'(пока пусто)'}
 
 ${getBaseInstructions()}
