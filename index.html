@@ -53,6 +53,15 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 .focus-done-btn:hover{background:rgba(0,200,100,0.3)}
 .focus-next-hint{font-size:10px;color:rgba(255,255,255,0.3);flex-shrink:0;white-space:nowrap;}
 
+.x-gesture-flash{
+  position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;background:rgba(0,200,100,0.12);
+  animation:xFlashFade 0.6s ease-out forwards;
+}
+.x-gesture-flash .x-check{font-size:56px;animation:xCheckPop 0.6s ease-out forwards;}
+@keyframes xFlashFade{0%{opacity:1}100%{opacity:0}}
+@keyframes xCheckPop{0%{transform:scale(0.4);opacity:0}30%{transform:scale(1.15);opacity:1}100%{transform:scale(1);opacity:0}}
+
 /* capture row */
 .capture-wrap{margin:0 16px;flex-shrink:0}
 .capture-row{
@@ -1148,6 +1157,73 @@ function renderFocusCard() {
     </div>`;
 }
 
+// ── ЖЕСТ "Х" НА ГЛАВНОМ ЭКРАНЕ — перечеркнул весь экран крест-накрест = отметил текущую задачу выполненной ──
+// Порядок диагоналей не важен: сначала ловим один диагональный штрих, потом второй (в любом порядке,
+// "\" или "/"), проверяем что они пересекаются в одной области экрана и уложились в разумное время.
+let xGestureStroke = null; // {startX, startY, time}
+let xGestureHistory = []; // [{type:'slash'|'backslash', midX, midY, time}]
+
+function xGestureStart(x, y) {
+  xGestureStroke = { startX: x, startY: y, time: Date.now() };
+}
+
+function xGestureEnd(x, y) {
+  if (!xGestureStroke) return;
+  const { startX, startY } = xGestureStroke;
+  xGestureStroke = null;
+
+  const mainEl = document.getElementById('screen-main');
+  if (!mainEl || !mainEl.classList.contains('active')) return;
+
+  const dx = x - startX;
+  const dy = y - startY;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  const minSide = Math.min(mainEl.clientWidth, mainEl.clientHeight);
+
+  if (dist < minSide * 0.5) return; // слишком короткий штрих — не считаем частью "Х"
+
+  const ratio = Math.abs(dx) / (Math.abs(dy) || 1);
+  if (ratio < 0.4 || ratio > 2.5) return; // недостаточно диагонально (слишком гориз./вертик.)
+
+  const type = (dx * dy > 0) ? 'backslash' : 'slash'; // "\" или "/", направление свайпа не важно
+  const midX = (startX + x) / 2;
+  const midY = (startY + y) / 2;
+  const now = Date.now();
+
+  xGestureHistory = xGestureHistory.filter(s => now - s.time < 1200); // храним штрихи не старше 1.2с
+  xGestureHistory.push({ type, midX, midY, time: now });
+
+  const crossTolerance = minSide * 0.4;
+  const match = xGestureHistory.find(s =>
+    s.type !== type &&
+    Math.abs(s.midX - midX) < crossTolerance &&
+    Math.abs(s.midY - midY) < crossTolerance
+  );
+
+  if (match) {
+    xGestureHistory = [];
+    completeFocusTaskByGesture();
+  }
+}
+
+function completeFocusTaskByGesture() {
+  const queue = getTodoQueue();
+  if (!queue.length) return; // нет активной задачи — жест ни на что не влияет
+  const top = queue[0];
+  showXGestureFlash();
+  toggleDone(top.id, false);
+}
+
+function showXGestureFlash() {
+  const phone = document.getElementById('phone');
+  if (!phone) return;
+  const flash = document.createElement('div');
+  flash.className = 'x-gesture-flash';
+  flash.innerHTML = '<span class="x-check">✓</span>';
+  phone.appendChild(flash);
+  setTimeout(() => flash.remove(), 650);
+}
+
 function renderTodo() {
   const el = document.getElementById('todo-list');
   if (!el) return;
@@ -1699,6 +1775,21 @@ document.getElementById('tag-add-btn').addEventListener('click', () => {
 document.getElementById('tag-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('tag-add-btn').click(); }
 });
+
+// ── Жест "Х" на главном экране ──
+const mainScreenEl = document.getElementById('screen-main');
+mainScreenEl.addEventListener('touchstart', (e) => {
+  const t = e.touches[0];
+  xGestureStart(t.pageX, t.pageY);
+}, { passive: true });
+mainScreenEl.addEventListener('touchend', (e) => {
+  const t = e.changedTouches[0];
+  xGestureEnd(t.pageX, t.pageY);
+}, { passive: true });
+// mouse-фолбэк для теста в браузере без тачскрина
+let xMouseDown = false;
+mainScreenEl.addEventListener('mousedown', (e) => { xMouseDown = true; xGestureStart(e.pageX, e.pageY); });
+mainScreenEl.addEventListener('mouseup', (e) => { if (xMouseDown) { xMouseDown = false; xGestureEnd(e.pageX, e.pageY); } });
 
 loadPromptRules().then(renderPromptRules);
 loadTags().then(() => { renderQuickTags(); renderTagsScreen(); });
