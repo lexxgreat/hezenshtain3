@@ -38,20 +38,20 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 .main-sub{font-size:12px;color:rgba(255,255,255,0.35)}
 
 .focus-card{
-  margin:0 16px 16px;padding:16px;border-radius:18px;
+  margin:0 16px 10px;padding:9px 12px;border-radius:14px;
   background:linear-gradient(135deg, rgba(108,71,255,0.14), rgba(0,212,255,0.08));
   border:1px solid rgba(108,71,255,0.35);flex-shrink:0;
+  display:flex;align-items:center;gap:10px;
 }
-.focus-label{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(139,92,246,0.8);font-weight:600;margin-bottom:8px;}
-.focus-text{font-size:15.5px;color:rgba(255,255,255,0.92);line-height:1.4;margin-bottom:12px;font-weight:500;}
-.focus-actions{display:flex;gap:8px;align-items:center;}
+.focus-text{flex:1;font-size:12.5px;color:rgba(255,255,255,0.9);line-height:1.3;font-weight:500;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .focus-done-btn{
-  flex:1;padding:9px;border-radius:12px;border:none;background:rgba(0,200,100,0.18);
-  color:rgba(0,230,120,0.95);font-size:13px;font-weight:600;cursor:pointer;
-  font-family:'Inter',sans-serif;transition:all 0.2s;
+  flex-shrink:0;padding:6px 12px;border-radius:99px;border:none;background:rgba(0,200,100,0.18);
+  color:rgba(0,230,120,0.95);font-size:11.5px;font-weight:600;cursor:pointer;
+  font-family:'Inter',sans-serif;transition:all 0.2s;white-space:nowrap;
 }
 .focus-done-btn:hover{background:rgba(0,200,100,0.3)}
-.focus-next-hint{font-size:11px;color:rgba(255,255,255,0.3);text-align:center;flex-shrink:0;white-space:nowrap;}
+.focus-next-hint{font-size:10px;color:rgba(255,255,255,0.3);flex-shrink:0;white-space:nowrap;}
 
 /* capture row */
 .capture-wrap{margin:0 16px;flex-shrink:0}
@@ -375,9 +375,8 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 
   <!-- ── MAIN SCREEN ── -->
   <div class="screen active" id="screen-main">
-    <div class="main-top">
-      <div class="main-greeting">Привет, Алексей</div>
-      <div class="main-sub">Ты — архитектор своей реальности.</div>
+    <div class="main-top" style="padding:8px 24px 8px;">
+      <div class="main-greeting" style="font-size:16px;">Привет, Алексей</div>
     </div>
 
     <div id="focus-card-wrap"></div>
@@ -407,9 +406,9 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     </div>
 
     <!-- Quick tags -->
-    <div class="qtags" id="qtags-list"></div>
-    <div style="display:flex;justify-content:center;padding:4px 16px 0;">
-      <button onclick="goTo('tags')" style="background:none;border:none;color:rgba(255,255,255,0.3);font-size:11px;cursor:pointer;font-family:'Inter',sans-serif;padding:4px 8px;">⚙️ Управление тегами</button>
+    <div style="display:flex;align-items:center;gap:6px;padding:0 16px;">
+      <div class="qtags" id="qtags-list" style="flex:1;padding:10px 0 0;justify-content:flex-start;"></div>
+      <button onclick="goTo('tags')" title="Управление тегами" style="background:none;border:none;color:rgba(255,255,255,0.25);font-size:15px;cursor:pointer;padding:4px;flex-shrink:0;">⚙️</button>
     </div>
 
     <!-- Big chaos button -->
@@ -1142,12 +1141,10 @@ function renderFocusCard() {
   const restCount = queue.length - 1;
   el.innerHTML = `
     <div class="focus-card">
-      <div class="focus-label">🎯 Сейчас важно</div>
-      <div class="focus-text">${escHtml(top.text)}</div>
-      <div class="focus-actions">
-        <button class="focus-done-btn" onclick="toggleDone('${top.id}', false)">✓ Выполнено — дальше</button>
-        ${restCount > 0 ? `<span class="focus-next-hint">+${restCount} в очереди</span>` : ''}
-      </div>
+      <span style="font-size:15px;flex-shrink:0;">🎯</span>
+      <span class="focus-text">${escHtml(top.text)}</span>
+      ${restCount > 0 ? `<span class="focus-next-hint">+${restCount}</span>` : ''}
+      <button class="focus-done-btn" onclick="toggleDone('${top.id}', false)">✓</button>
     </div>`;
 }
 
