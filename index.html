@@ -505,7 +505,10 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
           <div class="hist-title">История</div>
           <div class="hist-sub" id="hist-count">Загрузка...</div>
         </div>
-        <button onclick="exportNotes()" style="padding:6px 14px;border-radius:99px;border:0.5px solid rgba(108,71,255,0.4);background:rgba(108,71,255,0.1);color:rgba(139,92,246,0.9);font-size:12px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.2s">⬇ Экспорт</button>
+        <div style="display:flex;gap:8px;">
+          <button id="hist-select-toggle" onclick="toggleSelectionMode()" style="padding:6px 14px;border-radius:99px;border:0.5px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.6);font-size:12px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.2s">☑ Выделить</button>
+          <button onclick="exportNotes()" style="padding:6px 14px;border-radius:99px;border:0.5px solid rgba(108,71,255,0.4);background:rgba(108,71,255,0.1);color:rgba(139,92,246,0.9);font-size:12px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.2s">⬇ Экспорт</button>
+        </div>
       </div>
     </div>
     <div class="hist-search">
@@ -527,6 +530,14 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     </div>
     <div class="hist-list" id="hist-list">
       <div class="hist-empty"><div class="hist-empty-icon">📭</div>Пока нет записей</div>
+    </div>
+    <div id="bulk-actions-bar" style="display:none;padding:10px 16px;gap:8px;border-top:0.5px solid rgba(255,255,255,0.08);background:rgba(10,10,20,0.95);flex-shrink:0;">
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:8px;" id="bulk-count">Выбрано: 0</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="note-btn note-done" onclick="bulkMarkDone()">✓ Выполнено</button>
+        <button class="note-btn note-edit" onclick="bulkAddToTodo()">➜ В тудулист</button>
+        <button class="note-btn note-del" onclick="bulkDelete()">🗑 Удалить</button>
+      </div>
     </div>
 
     <!-- Edit modal -->
@@ -992,6 +1003,7 @@ async function loadNotes() {
 function renderNotes(list) {
   const el = document.getElementById('hist-list');
   document.getElementById('hist-count').textContent = list.length + ' записей';
+  if (selectionMode) updateBulkCount();
   if (!list.length) {
     el.innerHTML = `<div class="hist-empty"><div class="hist-empty-icon">📭</div>${histMode === 'done' ? 'Ничего не выполнено за этот период' : 'Пока нет записей'}</div>`;
     return;
@@ -1002,29 +1014,38 @@ function renderNotes(list) {
     const date = d.toLocaleDateString('ru-RU', { day:'numeric', month:'short', timeZone:'UTC' });
     const time = d.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'UTC' });
     const isDone = n.done === true;
-    const cardStyle = isDone ? 'opacity:0.5;' : '';
+    const isSelected = selectedNoteIds.has(n.id);
+    const cardStyle = (isDone ? 'opacity:0.5;' : '') + (isSelected ? 'border-color:rgba(139,92,246,0.7);background:rgba(108,71,255,0.1);' : '');
     const textStyle = isDone ? 'text-decoration:line-through;color:rgba(255,255,255,0.4);' : '';
     let doneAtStr = '';
     if (isDone && n.doneAt) {
       const dd = new Date(new Date(n.doneAt).getTime() + 3*60*60*1000);
       doneAtStr = ' · ✓ ' + dd.toLocaleDateString('ru-RU', { day:'numeric', month:'short', timeZone:'UTC' }) + ' ' + dd.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'UTC' });
     }
+    const cardClick = selectionMode ? `onclick="toggleSelectNote('${n.id}')" style="cursor:pointer;${cardStyle}"` : `style="${cardStyle}"`;
+    const checkbox = selectionMode ? `<div style="width:20px;height:20px;border-radius:6px;border:1.5px solid ${isSelected?'rgba(139,92,246,0.9)':'rgba(255,255,255,0.25)'};background:${isSelected?'rgba(139,92,246,0.9)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;color:#fff;">${isSelected?'✓':''}</div>` : '';
     // MVP: кнопка "Выполнено" доступна для ЛЮБОЙ записи, а не только с тегом "Задача"
     const doneBtn = `<button class="note-btn ${isDone ? 'note-undone' : 'note-done'}" onclick="toggleDone('${n.id}', ${isDone})">${isDone ? '↩ Открыть' : '✓ Выполнено'}</button>`;
     const isInTodo = n.inTodo === true;
     const todoBtn = `<button class="note-btn ${isInTodo ? 'note-undone' : 'note-edit'}" onclick="toggleTodo('${n.id}', ${isInTodo})">${isInTodo ? '✕ Убрать из тудулиста' : '➜ В тудулист'}</button>`;
     return `
-      <div class="note-card" style="${cardStyle}">
-        <div class="note-meta">
-          <span class="note-date">${date} · ${time}${n.tag ? ' · ' + n.tag : ''}${doneAtStr}</span>
-          <span class="note-type ${n.type === 'voice' ? 'type-voice' : 'type-text'}">${n.type === 'voice' ? '🎤 Голос' : '✏️ Текст'}</span>
-        </div>
-        <div class="note-text" style="${textStyle}">${escHtml(n.text)}</div>
-        <div class="note-actions">
-          ${doneBtn}
-          ${todoBtn}
-          <button class="note-btn note-edit" onclick="openEdit('${n.id}')">Редактировать</button>
-          <button class="note-btn note-del" onclick="deleteNote('${n.id}')">Удалить</button>
+      <div class="note-card" ${cardClick}>
+        <div style="display:flex;gap:10px;align-items:flex-start;">
+          ${checkbox}
+          <div style="flex:1;min-width:0;">
+            <div class="note-meta">
+              <span class="note-date">${date} · ${time}${n.tag ? ' · ' + n.tag : ''}${doneAtStr}</span>
+              <span class="note-type ${n.type === 'voice' ? 'type-voice' : 'type-text'}">${n.type === 'voice' ? '🎤 Голос' : '✏️ Текст'}</span>
+            </div>
+            <div class="note-text" style="${textStyle}">${escHtml(n.text)}</div>
+            ${selectionMode ? '' : `
+            <div class="note-actions">
+              ${doneBtn}
+              ${todoBtn}
+              <button class="note-btn note-edit" onclick="openEdit('${n.id}')">Редактировать</button>
+              <button class="note-btn note-del" onclick="deleteNote('${n.id}')">Удалить</button>
+            </div>`}
+          </div>
         </div>
       </div>`;
   }).join('');
@@ -1074,6 +1095,82 @@ function setHistMode(mode) {
   filterNotes();
 }
 window.setHistMode = setHistMode;
+
+// ── МАССОВОЕ ВЫДЕЛЕНИЕ В ИСТОРИИ ──
+let selectionMode = false;
+let selectedNoteIds = new Set();
+
+function toggleSelectionMode() {
+  selectionMode = !selectionMode;
+  if (!selectionMode) selectedNoteIds.clear();
+  const btn = document.getElementById('hist-select-toggle');
+  btn.textContent = selectionMode ? '✕ Отменить' : '☑ Выделить';
+  btn.style.background = selectionMode ? 'rgba(255,80,80,0.12)' : 'rgba(255,255,255,0.04)';
+  btn.style.color = selectionMode ? 'rgba(255,120,120,0.9)' : 'rgba(255,255,255,0.6)';
+  document.getElementById('bulk-actions-bar').style.display = selectionMode ? 'block' : 'none';
+  filterNotes();
+}
+window.toggleSelectionMode = toggleSelectionMode;
+
+function toggleSelectNote(id) {
+  if (selectedNoteIds.has(id)) selectedNoteIds.delete(id);
+  else selectedNoteIds.add(id);
+  filterNotes();
+}
+window.toggleSelectNote = toggleSelectNote;
+
+function updateBulkCount() {
+  const el = document.getElementById('bulk-count');
+  if (el) el.textContent = 'Выбрано: ' + selectedNoteIds.size;
+}
+
+async function bulkMarkDone() {
+  if (!selectedNoteIds.size) return;
+  const ids = Array.from(selectedNoteIds);
+  try {
+    for (const id of ids) {
+      await updateDoc(doc(db, 'notes', id), { done: true, doneAt: new Date().toISOString() });
+    }
+    celebrateTaskDone();
+    selectedNoteIds.clear();
+    toggleSelectionMode();
+    await loadNotes();
+  } catch(e) { alert('Ошибка: ' + e.message); }
+}
+window.bulkMarkDone = bulkMarkDone;
+
+async function bulkAddToTodo() {
+  if (!selectedNoteIds.size) return;
+  const ids = Array.from(selectedNoteIds);
+  try {
+    // все выбранные встают в начало очереди, сохраняя порядок выбора
+    const minOrder = notes.reduce((m, n) => n.inTodo ? Math.min(m, n.todoOrder ?? Infinity) : m, Infinity);
+    let base = minOrder === Infinity ? 0 : minOrder - ids.length - 1;
+    for (const id of ids) {
+      base += 1;
+      await updateDoc(doc(db, 'notes', id), { inTodo: true, todoOrder: base });
+    }
+    selectedNoteIds.clear();
+    toggleSelectionMode();
+    await loadNotes();
+  } catch(e) { alert('Ошибка: ' + e.message); }
+}
+window.bulkAddToTodo = bulkAddToTodo;
+
+async function bulkDelete() {
+  if (!selectedNoteIds.size) return;
+  if (!confirm(`Удалить ${selectedNoteIds.size} записей? Это необратимо.`)) return;
+  const ids = Array.from(selectedNoteIds);
+  try {
+    for (const id of ids) {
+      await deleteDoc(doc(db, 'notes', id));
+    }
+    selectedNoteIds.clear();
+    toggleSelectionMode();
+    await loadNotes();
+  } catch(e) { alert('Ошибка: ' + e.message); }
+}
+window.bulkDelete = bulkDelete;
 
 function filterNotes() {
   const q = document.getElementById('hist-search').value.toLowerCase();
@@ -1266,6 +1363,33 @@ function initTodoDrag() {
   if (!listEl || listEl.dataset.dragInit) return;
   listEl.dataset.dragInit = '1';
 
+  const EDGE = 60; // зона у края списка, при заходе в которую начинаем автоскролл (px)
+  const MAX_SPEED = 14; // максимальная скорость автоскролла (px за кадр)
+
+  function updateDragVisual() {
+    if (!todoDragState) return;
+    const scrolled = listEl.scrollTop - todoDragState.startScrollTop;
+    const deltaY = todoDragState.lastClientY - todoDragState.startY + scrolled;
+    todoDragState.itemEl.style.transform = `translateY(${deltaY}px)`;
+  }
+
+  function autoScrollTick() {
+    if (!todoDragState) return;
+    const rect = listEl.getBoundingClientRect();
+    const y = todoDragState.lastClientY;
+    let speed = 0;
+    if (y < rect.top + EDGE) {
+      speed = -MAX_SPEED * (1 - Math.max(0, (y - rect.top)) / EDGE);
+    } else if (y > rect.bottom - EDGE) {
+      speed = MAX_SPEED * (1 - Math.max(0, (rect.bottom - y)) / EDGE);
+    }
+    if (speed !== 0) {
+      listEl.scrollTop += speed;
+      updateDragVisual();
+    }
+    todoDragState.rafId = requestAnimationFrame(autoScrollTick);
+  }
+
   listEl.addEventListener('touchstart', (e) => {
     const handle = e.target.closest('.todo-drag-handle');
     if (!handle) return;
@@ -1277,35 +1401,46 @@ function initTodoDrag() {
       const r = elm.getBoundingClientRect();
       return { id: elm.dataset.id, midY: r.top + r.height / 2 };
     });
-    todoDragState = { id: card.dataset.id, startY: touch.clientY, itemEl: card, itemsSnapshot };
+    todoDragState = {
+      id: card.dataset.id, startY: touch.clientY, lastClientY: touch.clientY,
+      itemEl: card, itemsSnapshot, startScrollTop: listEl.scrollTop
+    };
     card.classList.add('todo-dragging');
+    todoDragState.rafId = requestAnimationFrame(autoScrollTick);
   }, { passive: true });
 
   listEl.addEventListener('touchmove', (e) => {
     if (!todoDragState) return;
-    e.preventDefault(); // не даём странице скроллиться во время перетаскивания
-    const touch = e.touches[0];
-    const deltaY = touch.clientY - todoDragState.startY;
-    todoDragState.itemEl.style.transform = `translateY(${deltaY}px)`;
+    e.preventDefault(); // не даём странице скроллиться обычным способом во время перетаскивания
+    todoDragState.lastClientY = e.touches[0].clientY;
+    updateDragVisual();
   }, { passive: false });
 
-  listEl.addEventListener('touchend', (e) => {
+  function finishDrag(finalClientY) {
     if (!todoDragState) return;
-    const touch = e.changedTouches[0];
-    const finalY = touch.clientY;
+    cancelAnimationFrame(todoDragState.rafId);
+    // компенсируем итоговый скролл при сравнении с исходными позициями соседей
+    const scrolled = listEl.scrollTop - todoDragState.startScrollTop;
     const others = todoDragState.itemsSnapshot.filter(s => s.id !== todoDragState.id);
     let newIndex = others.length;
     for (let i = 0; i < others.length; i++) {
-      if (finalY < others[i].midY) { newIndex = i; break; }
+      const adjustedMidY = others[i].midY - scrolled;
+      if (finalClientY < adjustedMidY) { newIndex = i; break; }
     }
     todoDragState.itemEl.style.transform = '';
     todoDragState.itemEl.classList.remove('todo-dragging');
     reorderTodo(todoDragState.id, newIndex);
     todoDragState = null;
+  }
+
+  listEl.addEventListener('touchend', (e) => {
+    if (!todoDragState) return;
+    finishDrag(e.changedTouches[0].clientY);
   });
 
   listEl.addEventListener('touchcancel', () => {
     if (!todoDragState) return;
+    cancelAnimationFrame(todoDragState.rafId);
     todoDragState.itemEl.style.transform = '';
     todoDragState.itemEl.classList.remove('todo-dragging');
     todoDragState = null;
