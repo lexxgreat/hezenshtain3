@@ -287,7 +287,13 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
   font-size:11px;padding:4px 12px;border-radius:99px;border:none;
   cursor:pointer;font-family:'Inter',sans-serif;font-weight:500;transition:all 0.2s;
 }
-.todo-arrow-btn{padding:4px 10px;min-width:28px;text-align:center;}
+.todo-drag-handle{
+  cursor:grab;padding:6px 4px;color:rgba(255,255,255,0.28);font-size:18px;
+  touch-action:none;user-select:none;flex-shrink:0;line-height:1;margin-top:2px;
+}
+.todo-dragging{
+  opacity:0.9;box-shadow:0 10px 28px rgba(0,0,0,0.5);z-index:20;transition:none !important;
+}
 .note-edit{background:rgba(108,71,255,0.15);color:rgba(139,92,246,0.9)}
 .note-edit:hover{background:rgba(108,71,255,0.3)}
 .note-done{background:rgba(0,200,100,0.12);color:rgba(0,220,110,0.85);border:0.5px solid rgba(0,200,100,0.25)}
@@ -1163,31 +1169,15 @@ async function toggleTodo(id, currentInTodo) {
     const willBeInTodo = !currentInTodo;
     const update = { inTodo: willBeInTodo };
     if (willBeInTodo) {
-      // ставим в конец очереди — максимальный существующий todoOrder + 1
-      const maxOrder = notes.reduce((m, n) => n.inTodo ? Math.max(m, n.todoOrder || 0) : m, 0);
-      update.todoOrder = maxOrder + 1;
+      // ставим в НАЧАЛО очереди — минимальный существующий todoOrder - 1
+      const minOrder = notes.reduce((m, n) => n.inTodo ? Math.min(m, n.todoOrder ?? Infinity) : m, Infinity);
+      update.todoOrder = minOrder === Infinity ? 1 : minOrder - 1;
     }
     await updateDoc(doc(db, 'notes', id), update);
     await loadNotes();
   } catch(e) { alert('Ошибка: ' + e.message); }
 }
 window.toggleTodo = toggleTodo;
-
-async function moveTodo(id, direction) {
-  // direction: -1 (вверх) или +1 (вниз)
-  const queue = notes.filter(n => n.inTodo === true && !n.done).sort((a,b) => (a.todoOrder||0) - (b.todoOrder||0));
-  const idx = queue.findIndex(n => n.id === id);
-  const swapIdx = idx + direction;
-  if (idx === -1 || swapIdx < 0 || swapIdx >= queue.length) return;
-  const a = queue[idx], b = queue[swapIdx];
-  const aOrder = a.todoOrder || 0, bOrder = b.todoOrder || 0;
-  try {
-    await updateDoc(doc(db, 'notes', a.id), { todoOrder: bOrder });
-    await updateDoc(doc(db, 'notes', b.id), { todoOrder: aOrder });
-    await loadNotes();
-  } catch(e) { alert('Ошибка: ' + e.message); }
-}
-window.moveTodo = moveTodo;
 
 function getTodoQueue() {
   return notes.filter(n => n.inTodo === true && !n.done).sort((a,b) => (a.todoOrder||0) - (b.todoOrder||0));
@@ -1265,6 +1255,77 @@ function completeFocusTaskByGesture() {
   toggleDone(top.id, false); // celebrateTaskDone() вызовется внутри toggleDone
 }
 
+// ── DRAG-N-DROP ДЛЯ ТУДУШКИ ──
+// Тащим за ручку "⠿", отпускаем — задача встаёт на позицию под пальцем.
+// Слушатель вешаем один раз на статичный контейнер #todo-list (сам список,
+// а не его содержимое, которое перерисовывается) — переживает любые re-render.
+let todoDragState = null;
+
+function initTodoDrag() {
+  const listEl = document.getElementById('todo-list');
+  if (!listEl || listEl.dataset.dragInit) return;
+  listEl.dataset.dragInit = '1';
+
+  listEl.addEventListener('touchstart', (e) => {
+    const handle = e.target.closest('.todo-drag-handle');
+    if (!handle) return;
+    const card = handle.closest('.note-card');
+    if (!card) return;
+    const touch = e.touches[0];
+    const items = Array.from(listEl.querySelectorAll('.note-card'));
+    const itemsSnapshot = items.map(elm => {
+      const r = elm.getBoundingClientRect();
+      return { id: elm.dataset.id, midY: r.top + r.height / 2 };
+    });
+    todoDragState = { id: card.dataset.id, startY: touch.clientY, itemEl: card, itemsSnapshot };
+    card.classList.add('todo-dragging');
+  }, { passive: true });
+
+  listEl.addEventListener('touchmove', (e) => {
+    if (!todoDragState) return;
+    e.preventDefault(); // не даём странице скроллиться во время перетаскивания
+    const touch = e.touches[0];
+    const deltaY = touch.clientY - todoDragState.startY;
+    todoDragState.itemEl.style.transform = `translateY(${deltaY}px)`;
+  }, { passive: false });
+
+  listEl.addEventListener('touchend', (e) => {
+    if (!todoDragState) return;
+    const touch = e.changedTouches[0];
+    const finalY = touch.clientY;
+    const others = todoDragState.itemsSnapshot.filter(s => s.id !== todoDragState.id);
+    let newIndex = others.length;
+    for (let i = 0; i < others.length; i++) {
+      if (finalY < others[i].midY) { newIndex = i; break; }
+    }
+    todoDragState.itemEl.style.transform = '';
+    todoDragState.itemEl.classList.remove('todo-dragging');
+    reorderTodo(todoDragState.id, newIndex);
+    todoDragState = null;
+  });
+
+  listEl.addEventListener('touchcancel', () => {
+    if (!todoDragState) return;
+    todoDragState.itemEl.style.transform = '';
+    todoDragState.itemEl.classList.remove('todo-dragging');
+    todoDragState = null;
+  });
+}
+
+async function reorderTodo(id, newIndex) {
+  const queue = getTodoQueue();
+  const dragged = queue.find(n => n.id === id);
+  if (!dragged) return;
+  const rest = queue.filter(n => n.id !== id);
+  rest.splice(newIndex, 0, dragged);
+  try {
+    for (let i = 0; i < rest.length; i++) {
+      await updateDoc(doc(db, 'notes', rest[i].id), { todoOrder: i + 1 });
+    }
+    await loadNotes();
+  } catch(e) { alert('Ошибка сортировки: ' + e.message); }
+}
+
 function renderTodo() {
   const el = document.getElementById('todo-list');
   if (!el) return;
@@ -1275,16 +1336,17 @@ function renderTodo() {
     return;
   }
   el.innerHTML = queue.map((n, i) => `
-    <div class="note-card">
-      <div class="note-meta">
-        <span class="note-date">#${i+1}${n.tag ? ' · ' + n.tag : ''}</span>
-      </div>
-      <div class="note-text">${escHtml(n.text)}</div>
-      <div class="note-actions">
-        <button class="note-btn note-done" onclick="toggleDone('${n.id}', false)">✓ Выполнено</button>
-        <button class="note-btn note-edit todo-arrow-btn" onclick="moveTodo('${n.id}', -1)" ${i===0 ? 'disabled style="opacity:0.3;"' : ''}>▲</button>
-        <button class="note-btn note-edit todo-arrow-btn" onclick="moveTodo('${n.id}', 1)" ${i===queue.length-1 ? 'disabled style="opacity:0.3;"' : ''}>▼</button>
-        <button class="note-btn note-undone" onclick="toggleTodo('${n.id}', true)">✕ Убрать</button>
+    <div class="note-card" data-id="${n.id}" style="display:flex;gap:10px;align-items:flex-start;">
+      <div class="todo-drag-handle">⠿</div>
+      <div style="flex:1;min-width:0;">
+        <div class="note-meta">
+          <span class="note-date">#${i+1}${n.tag ? ' · ' + n.tag : ''}</span>
+        </div>
+        <div class="note-text">${escHtml(n.text)}</div>
+        <div class="note-actions">
+          <button class="note-btn note-done" onclick="toggleDone('${n.id}', false)">✓ Выполнено</button>
+          <button class="note-btn note-undone" onclick="toggleTodo('${n.id}', true)">✕ Убрать</button>
+        </div>
       </div>
     </div>
   `).join('');
@@ -1832,6 +1894,7 @@ let xMouseDown = false;
 mainScreenEl.addEventListener('mousedown', (e) => { xMouseDown = true; xGestureStart(e.pageX, e.pageY); });
 mainScreenEl.addEventListener('mouseup', (e) => { if (xMouseDown) { xMouseDown = false; xGestureEnd(e.pageX, e.pageY); } });
 
+initTodoDrag();
 loadPromptRules().then(renderPromptRules);
 loadTags().then(() => { renderQuickTags(); renderTagsScreen(); });
 loadChatHistory();
