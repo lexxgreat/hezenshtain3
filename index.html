@@ -1358,6 +1358,45 @@ function initTodoDrag() {
     const scrolled = listEl.scrollTop - todoDragState.startScrollTop;
     const deltaY = todoDragState.lastClientY - todoDragState.startY + scrolled;
     todoDragState.itemEl.style.transform = `translateY(${deltaY}px)`;
+    updateLiveShift(scrolled);
+  }
+
+  // живой сдвиг соседей — расталкиваются, пока перетаскиваемая карточка "проходит" сквозь них
+  function updateLiveShift(scrolled) {
+    if (!todoDragState) return;
+    const { itemsSnapshot, id, startIndexAmongOthers, draggedHeight } = todoDragState;
+    const fingerY = todoDragState.lastClientY;
+    const others = itemsSnapshot.filter(s => s.id !== id);
+
+    let targetIndex = others.length;
+    for (let i = 0; i < others.length; i++) {
+      const adjMidY = others[i].midY - scrolled;
+      if (fingerY < adjMidY) { targetIndex = i; break; }
+    }
+    if (targetIndex === todoDragState.currentTargetIndex) return;
+    todoDragState.currentTargetIndex = targetIndex;
+
+    others.forEach((s, j) => {
+      const el = listEl.querySelector(`.note-card[data-id="${s.id}"]`);
+      if (!el || el === todoDragState.itemEl) return;
+      let shift = 0;
+      if (startIndexAmongOthers < targetIndex && j >= startIndexAmongOthers && j < targetIndex) {
+        shift = -draggedHeight; // сосед уступает место — сдвигается вверх
+      } else if (targetIndex < startIndexAmongOthers && j >= targetIndex && j < startIndexAmongOthers) {
+        shift = draggedHeight; // сосед уступает место — сдвигается вниз
+      }
+      el.style.transition = 'transform 0.2s ease';
+      el.style.transform = shift ? `translateY(${shift}px)` : '';
+    });
+  }
+
+  function resetShifts() {
+    if (!todoDragState) return;
+    todoDragState.itemsSnapshot.forEach(s => {
+      if (s.id === todoDragState.id) return;
+      const el = listEl.querySelector(`.note-card[data-id="${s.id}"]`);
+      if (el) { el.style.transition = ''; el.style.transform = ''; }
+    });
   }
 
   function autoScrollTick() {
@@ -1388,9 +1427,14 @@ function initTodoDrag() {
       const r = elm.getBoundingClientRect();
       return { id: elm.dataset.id, midY: r.top + r.height / 2 };
     });
+    const startFullIndex = itemsSnapshot.findIndex(s => s.id === card.dataset.id);
+    const cardRect = card.getBoundingClientRect();
     todoDragState = {
       id: card.dataset.id, startY: touch.clientY, lastClientY: touch.clientY,
-      itemEl: card, itemsSnapshot, startScrollTop: listEl.scrollTop
+      itemEl: card, itemsSnapshot, startScrollTop: listEl.scrollTop,
+      startIndexAmongOthers: startFullIndex, // среди "others" позиции до неё те же, что и в полном списке
+      draggedHeight: cardRect.height + 8, // +8 = margin-bottom карточки (реальный шаг сетки)
+      currentTargetIndex: startFullIndex
     };
     card.classList.add('todo-dragging');
     todoDragState.rafId = requestAnimationFrame(autoScrollTick);
@@ -1403,31 +1447,23 @@ function initTodoDrag() {
     updateDragVisual();
   }, { passive: false });
 
-  function finishDrag(finalClientY) {
+  function finishDrag() {
     if (!todoDragState) return;
     cancelAnimationFrame(todoDragState.rafId);
-    // компенсируем итоговый скролл при сравнении с исходными позициями соседей
-    const scrolled = listEl.scrollTop - todoDragState.startScrollTop;
-    const others = todoDragState.itemsSnapshot.filter(s => s.id !== todoDragState.id);
-    let newIndex = others.length;
-    for (let i = 0; i < others.length; i++) {
-      const adjustedMidY = others[i].midY - scrolled;
-      if (finalClientY < adjustedMidY) { newIndex = i; break; }
-    }
+    const finalIndex = todoDragState.currentTargetIndex;
+    resetShifts();
     todoDragState.itemEl.style.transform = '';
     todoDragState.itemEl.classList.remove('todo-dragging');
-    reorderTodo(todoDragState.id, newIndex);
+    reorderTodo(todoDragState.id, finalIndex);
     todoDragState = null;
   }
 
-  listEl.addEventListener('touchend', (e) => {
-    if (!todoDragState) return;
-    finishDrag(e.changedTouches[0].clientY);
-  });
+  listEl.addEventListener('touchend', () => finishDrag());
 
   listEl.addEventListener('touchcancel', () => {
     if (!todoDragState) return;
     cancelAnimationFrame(todoDragState.rafId);
+    resetShifts();
     todoDragState.itemEl.style.transform = '';
     todoDragState.itemEl.classList.remove('todo-dragging');
     todoDragState = null;
@@ -1735,6 +1771,8 @@ function toMoscow(isoStr) {
 
 function getBaseInstructions() {
   return `═══ СТРОГИЕ ПРАВИЛА ═══
+
+О СЕБЕ: если спросят, какая ты модель/на чём основан — отвечай точно: «Claude Haiku 4.5 (Anthropic), подключена через Polza AI». Не угадывай и не называй другие модели (GPT, версии 3.5 и т.п.) — это неверно.
 
 ЕДИНСТВЕННЫЙ способ совершить действие — вызвать соответствующую функцию (tool call). Обычный текст ничего не сохраняет и не изменяет.
 
