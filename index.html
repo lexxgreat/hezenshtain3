@@ -576,6 +576,10 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
         <div class="chat-subtitle" id="prompt-count">0 правил</div>
       </div>
     </div>
+    <div id="balance-widget" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;margin:12px 16px 0;background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.1);border-radius:12px;">
+      <span style="font-size:12.5px;color:rgba(255,255,255,0.55);">💰 Баланс Polza: <span id="balance-amount" style="color:rgba(139,92,246,0.95);font-weight:600;">—</span></span>
+      <button onclick="loadBalance()" style="background:none;border:none;color:rgba(255,255,255,0.35);font-size:14px;cursor:pointer;padding:4px;">↻</button>
+    </div>
     <div class="hist-list" id="prompt-list" style="padding:16px;overflow-y:auto;flex:1;"></div>
     <div class="chat-input-wrap">
       <div class="chat-input-row">
@@ -1495,7 +1499,7 @@ function goTo(screen) {
   if (screen === 'hist') loadNotes();
   if (screen === 'todo') loadNotes();
   if (screen === 'chat') { renderChat(); checkRemindersOnOpen(); }
-  if (screen === 'prompt') renderPromptRules();
+  if (screen === 'prompt') { renderPromptRules(); loadBalance(); }
   if (screen === 'tags') renderTagsScreen();
 }
 window.goTo = goTo;
@@ -1535,7 +1539,28 @@ document.getElementById('cap-input').addEventListener('keydown', (e) => {
 // ── ЧАТ ИИ ──
 const POLZA_KEY = 'pza_cThu2r1mJJ05nJQxKWEjbyrqgnTaNVxk';
 const POLZA_URL = 'https://api.polza.ai/api/v1/chat/completions';
-const CHAT_MODEL = 'openai/gpt-4o-mini';
+const POLZA_BALANCE_URL = 'https://polza.ai/api/v1/balance';
+
+async function loadBalance() {
+  const el = document.getElementById('balance-amount');
+  if (!el) return;
+  el.textContent = '...';
+  try {
+    const res = await fetch(POLZA_BALANCE_URL, {
+      headers: { 'Authorization': 'Bearer ' + POLZA_KEY }
+    });
+    const data = await res.json();
+    if (data.amount !== undefined) {
+      el.textContent = parseFloat(data.amount).toFixed(2) + ' ₽';
+    } else {
+      el.textContent = 'ошибка';
+    }
+  } catch(e) {
+    el.textContent = 'нет связи';
+  }
+}
+window.loadBalance = loadBalance;
+const CHAT_MODEL = 'anthropic/claude-haiku-4.5';
 
 // ── ИНСТРУМЕНТЫ ДЛЯ ИИ (вместо ненадёжных текстовых тегов [ДОБАВИТЬ:...]) ──
 // tag enum строится динамически из tags[] — единый источник с главным экраном и экраном "Теги"
@@ -1582,6 +1607,20 @@ function buildChatTools() {
           rule: { type: 'string', description: 'Новое правило или инструкция на русском языке' }
         },
         required: ['rule']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'query_period',
+      description: 'Получить точный, заранее отфильтрованный список записей за последние N дней (по дате создания ИЛИ по дате отметки "выполнено"). Вызывай это, когда пользователь спрашивает про период длиннее одного дня — «за неделю», «за 3 дня», «за месяц», «с понедельника» и т.п. Не вызывай для вопросов про «сегодня» — для этого уже есть готовый раздел ЗА СЕГОДНЯ в контексте. После вызова тебе придёт точный список — отвечай на его основе, не додумывай числа сам.',
+      parameters: {
+        type: 'object',
+        properties: {
+          days: { type: 'integer', description: 'Сколько последних дней включительно нужно охватить (например 7 для "за неделю", 3 для "за 3 дня", 30 для "за месяц")' }
+        },
+        required: ['days']
       }
     }
   }
@@ -1728,6 +1767,14 @@ function getBaseInstructions() {
 - Для расчёта времени ищи пары «начал/закончил» по времени записи
 - Саммари дня: группируй по категориям, считай время и деньги
 
+ВОПРОСЫ ПРО «СЕГОДНЯ» («что было сегодня», «сводка за сегодня», «что я сделал»):
+- Используй раздел «ЗА СЕГОДНЯ» выше — он уже точно отфильтрован, не нужно пересматривать всю базу заново
+- Не путай «добавлено сегодня» и «выполнено сегодня» — это разные вещи, в разделе явно указано какое из двух
+
+ВОПРОСЫ ПРО ДРУГОЙ ПЕРИОД («за неделю», «за 3 дня», «за месяц», «с понедельника»):
+- Вызови функцию query_period с нужным числом дней — тебе вернётся точный список, отвечай на его основе
+- Не пытайся сам искать и считать это по общей базе ниже — она может быть обрезана или неполна для длинных периодов
+
 ВОПРОСЫ ПРО ЗАДАЧИ («какие задачи есть», «что делать», «что сейчас важно»):
 - Отвечай на основе раздела ТУДУШКА выше — это актуальная очередь дел, а не вся база
 - НЕ упоминай записи с пометкой [ВЫПОЛНЕНО] как то, что предстоит сделать
@@ -1746,6 +1793,22 @@ function buildSystemPrompt() {
     return `[${toMoscow(n.createdAt)} МСК${n.tag?' | '+n.tag:''}]${status} ${n.text}`;
   }).join('\n');
 
+  // отдельный, заранее отфильтрованный блок "за сегодня" — не нужно искать в общей базе,
+  // сюда попадает всё, что добавлено ИЛИ выполнено сегодня (по московскому дню)
+  const todayDay = toMoscowDayStart(new Date().toISOString());
+  const todayNotes = notes.filter(n =>
+    toMoscowDayStart(n.createdAt) === todayDay ||
+    (n.doneAt && toMoscowDayStart(n.doneAt) === todayDay)
+  );
+  const todayContext = todayNotes.length
+    ? todayNotes.map(n => {
+        const parts = [];
+        if (toMoscowDayStart(n.createdAt) === todayDay) parts.push('добавлено сегодня в ' + toMoscow(n.createdAt));
+        if (n.doneAt && toMoscowDayStart(n.doneAt) === todayDay) parts.push('выполнено сегодня в ' + toMoscow(n.doneAt));
+        return `[${parts.join(', ')}${n.tag ? ' | ' + n.tag : ''}] ${n.text}`;
+      }).join('\n')
+    : '(сегодня пока ничего не добавлено и не выполнено)';
+
   const todoQueue = getTodoQueue();
   const todoContext = todoQueue.length
     ? todoQueue.map((n, i) => `${i+1}. ${n.text}${n.tag ? ' ('+n.tag+')' : ''}`).join('\n')
@@ -1756,7 +1819,10 @@ function buildSystemPrompt() {
 ТУДУШКА (текущая очередь дел на выполнение прямо сейчас, по приоритету — пункт 1 самый первостепенный):
 ${todoContext}
 
-БАЗА ДАННЫХ (все записи, время московское; [ВЫПОЛНЕНО] — задача уже закрыта):
+ЗА СЕГОДНЯ (добавлено или выполнено сегодня — этот список уже точно отфильтрован по сегодняшнему дню, используй его напрямую для любых вопросов про "сегодня", не нужно искать это в общей базе ниже):
+${todayContext}
+
+БАЗА ДАННЫХ (все записи, время московское; [ВЫПОЛНЕНО] — задача уже закрыта; используй эту базу для вопросов про другие даты, периоды или общий поиск):
 ${notesContext||'(пока пусто)'}
 
 ${getBaseInstructions()}
@@ -1764,6 +1830,44 @@ ${getBaseInstructions()}
 ${promptRules.length ? 'ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОТ АЛЕКСЕЯ:\n' + promptRules.map(r => '- ' + r.text).join('\n') : ''}
 
 Отвечай кратко, по-русски, дружелюбно.`;
+}
+
+// формирует точный, заранее отфильтрованный список записей за последние N дней
+// (по дате создания ИЛИ по дате отметки "выполнено") — модель получает готовые данные, не считает сама
+function formatPeriodContext(days) {
+  const nowDay = toMoscowDayStart(new Date().toISOString());
+  const dayMs = 24 * 60 * 60 * 1000;
+  const startDay = nowDay - (days - 1) * dayMs;
+
+  const inRange = (iso) => {
+    const day = toMoscowDayStart(iso);
+    return day >= startDay && day <= nowDay;
+  };
+
+  const periodNotes = notes.filter(n => inRange(n.createdAt) || (n.doneAt && inRange(n.doneAt)));
+  if (!periodNotes.length) return `За последние ${days} дней записей не найдено.`;
+
+  const lines = periodNotes.map(n => {
+    const parts = [];
+    if (inRange(n.createdAt)) parts.push('добавлено ' + toMoscow(n.createdAt) + ' МСК');
+    if (n.doneAt && inRange(n.doneAt)) parts.push('выполнено ' + toMoscow(n.doneAt) + ' МСК');
+    return `[${parts.join(', ')}${n.tag ? ' | ' + n.tag : ''}] ${n.text}`;
+  });
+  return `Записи за последние ${days} дней (найдено ${lines.length}):\n` + lines.join('\n');
+}
+
+// один запрос к API чата, возвращает message-объект ответа
+async function callChatAPI(apiMessages) {
+  const res = await fetch(POLZA_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + POLZA_KEY },
+    body: JSON.stringify({
+      model: CHAT_MODEL, max_tokens: 700, messages: apiMessages,
+      tools: buildChatTools(), tool_choice: 'auto'
+    })
+  });
+  const data = await res.json();
+  return data.choices?.[0]?.message;
 }
 
 async function sendChatMessage(userText) {
@@ -1791,22 +1895,31 @@ async function sendChatMessage(userText) {
   showTyping();
   document.getElementById('chat-subtitle').textContent = 'Думаю...';
   try {
-    const res = await fetch(POLZA_URL, {
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+POLZA_KEY},
-      body: JSON.stringify({
-        model: CHAT_MODEL, max_tokens: 700, messages: apiMessages,
-        tools: buildChatTools(), tool_choice: 'auto'
-      })
-    });
-    const data = await res.json();
+    let message = await callChatAPI(apiMessages);
+    if (!message) { hideTyping(); await addChatMessage('assistant', 'Нет ответа'); return; }
+
+    let toolCalls = message.tool_calls || [];
+
+    // модель запросила данные за период — выполняем локально и делаем повторный запрос с результатом
+    const periodCall = toolCalls.find(c => c.function.name === 'query_period');
+    if (periodCall) {
+      let periodArgs = {};
+      try { periodArgs = JSON.parse(periodCall.function.arguments || '{}'); } catch(e) {}
+      const days = Math.max(1, parseInt(periodArgs.days) || 7);
+      const periodResult = formatPeriodContext(days);
+
+      apiMessages.push({ role: 'assistant', content: message.content || null, tool_calls: toolCalls });
+      apiMessages.push({ role: 'tool', tool_call_id: periodCall.id, content: periodResult });
+
+      document.getElementById('chat-subtitle').textContent = 'Смотрю записи...';
+      message = await callChatAPI(apiMessages);
+      if (!message) { hideTyping(); await addChatMessage('assistant', 'Нет ответа'); return; }
+      toolCalls = message.tool_calls || [];
+    }
+
     hideTyping();
     document.getElementById('chat-subtitle').textContent = 'Готов помочь';
 
-    const message = data.choices?.[0]?.message;
-    if (!message) { await addChatMessage('assistant', 'Нет ответа'); return; }
-
-    const toolCalls = message.tool_calls || [];
     let proposedNote = null;
     let doneTarget = null;
     let promptRule = null;
