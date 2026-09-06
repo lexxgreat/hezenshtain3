@@ -388,16 +388,15 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
   <div class="orb" style="width:190px;height:190px;background:rgba(168,85,247,0.14);bottom:140px;left:-20px;animation-delay:-6.5s"></div>
 
   <!-- Status -->
-  <div class="status">
-    <span id="clock">--:--</span>
-    <span style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(108,71,255,0.65);font-weight:600">Hazenstein</span>
-    <span></span>
+  <div class="status" style="justify-content:center;">
+    <span style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(108,71,255,0.65);font-weight:600">ХЭЗЭНШТЕЙН</span>
   </div>
 
   <!-- ── MAIN SCREEN ── -->
   <div class="screen active" id="screen-main">
-    <div class="main-top" style="padding:8px 24px 8px;">
+    <div class="main-top" style="padding:10px 24px 8px;">
       <div class="main-greeting" style="font-size:16px;">Привет, Алексей</div>
+      <div class="main-sub">Ты — архитектор своей реальности.</div>
     </div>
 
     <div id="focus-card-wrap"></div>
@@ -1532,17 +1531,6 @@ document.getElementById('cap-input').addEventListener('keydown', (e) => {
     document.getElementById('cap-send').click();
   }
 });
-
-// clock
-function updateClock() {
-  const now = new Date();
-  const h = String(now.getHours()).padStart(2,'0');
-  const m = String(now.getMinutes()).padStart(2,'0');
-  const el = document.getElementById('clock');
-  if (el) el.textContent = h + ':' + m;
-}
-updateClock();
-setInterval(updateClock, 10000);
 
 // ── ЧАТ ИИ ──
 const POLZA_KEY = 'pza_cThu2r1mJJ05nJQxKWEjbyrqgnTaNVxk';
