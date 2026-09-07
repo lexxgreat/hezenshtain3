@@ -598,6 +598,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
       <button onclick="loadBalance()" style="background:none;border:none;color:rgba(255,255,255,0.35);font-size:14px;cursor:pointer;padding:4px;">↻</button>
     </div>
     <div style="padding:8px 16px 0;">
+      <button onclick="migrateOldData()" style="width:100%;background:rgba(0,180,120,0.1);border:0.5px solid rgba(0,200,140,0.3);border-radius:12px;padding:9px;color:rgba(0,220,150,0.9);font-size:12.5px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;margin-bottom:8px;">📥 Импортировать старые данные (один раз)</button>
       <button onclick="logout()" style="width:100%;background:rgba(255,80,80,0.08);border:0.5px solid rgba(255,80,80,0.25);border-radius:12px;padding:9px;color:rgba(255,110,110,0.85);font-size:12.5px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;">Выйти из аккаунта</button>
     </div>
     <div class="hist-list" id="prompt-list" style="padding:16px;overflow-y:auto;flex:1;"></div>
@@ -2227,6 +2228,28 @@ document.getElementById('auth-submit-btn').addEventListener('click', async () =>
     setAuthError(friendlyAuthError(e.code));
   }
 });
+
+// ── ОДНОРАЗОВЫЙ ПЕРЕНОС старых данных (из общих коллекций верхнего уровня в users/{uid}/...) ──
+async function migrateOldData() {
+  if (!currentUid) return;
+  if (!confirm('Импортировать старые данные (заметки, чат, теги, промпт) в этот аккаунт? Делай это только один раз.')) return;
+  const oldCollections = ['notes', 'chat', 'promptRules', 'tags'];
+  let total = 0;
+  try {
+    for (const name of oldCollections) {
+      const oldSnap = await getDocs(collection(db, name)); // старый путь верхнего уровня
+      for (const d of oldSnap.docs) {
+        await setDoc(doc(db, 'users', currentUid, name, d.id), d.data());
+        total++;
+      }
+    }
+    alert('Готово! Импортировано записей: ' + total);
+    await initUserData();
+  } catch(e) {
+    alert('Ошибка импорта: ' + e.message + '\n\nПроверь, что правила Firestore временно разрешают чтение старых коллекций (notes, chat, promptRules, tags) для авторизованных пользователей.');
+  }
+}
+window.migrateOldData = migrateOldData;
 
 async function logout() {
   await signOut(auth);
