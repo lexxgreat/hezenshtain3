@@ -387,13 +387,30 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
   <div class="orb" style="width:240px;height:240px;background:rgba(0,212,255,0.11);top:280px;right:-80px;animation-delay:-4s"></div>
   <div class="orb" style="width:190px;height:190px;background:rgba(168,85,247,0.14);bottom:140px;left:-20px;animation-delay:-6.5s"></div>
 
+  <!-- ── AUTH SCREEN (вход / регистрация) ── -->
+  <div class="screen active" id="screen-auth" style="justify-content:center;align-items:center;padding:0 28px;">
+    <div style="text-align:center;margin-bottom:28px;">
+      <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:rgba(108,71,255,0.7);font-weight:600;margin-bottom:10px;">ХЭЗЭНШТЕЙН</div>
+      <div style="font-size:18px;color:rgba(255,255,255,0.9);font-weight:500;" id="auth-title">Вход</div>
+    </div>
+    <div style="width:100%;max-width:280px;display:flex;flex-direction:column;gap:10px;">
+      <input type="email" id="auth-email" placeholder="Email" autocomplete="email"
+        style="background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.15);border-radius:12px;padding:13px 16px;color:#fff;font-size:14px;font-family:'Inter',sans-serif;outline:none;">
+      <input type="password" id="auth-password" placeholder="Пароль" autocomplete="current-password"
+        style="background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.15);border-radius:12px;padding:13px 16px;color:#fff;font-size:14px;font-family:'Inter',sans-serif;outline:none;">
+      <div id="auth-error" style="color:rgba(255,90,90,0.9);font-size:12.5px;min-height:16px;text-align:center;"></div>
+      <button id="auth-submit-btn" style="background:linear-gradient(135deg,#6C47FF,#8B5CF6);border:none;border-radius:12px;padding:13px;color:#fff;font-size:14.5px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;margin-top:4px;">Войти</button>
+      <button id="auth-toggle-btn" style="background:none;border:none;color:rgba(255,255,255,0.4);font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;padding:8px;">Нет аккаунта? Зарегистрироваться</button>
+    </div>
+  </div>
+
   <!-- Status -->
-  <div class="status" style="justify-content:center;">
+  <div class="status" style="justify-content:center;display:none;">
     <span style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(108,71,255,0.65);font-weight:600">ХЭЗЭНШТЕЙН</span>
   </div>
 
   <!-- ── MAIN SCREEN ── -->
-  <div class="screen active" id="screen-main">
+  <div class="screen" id="screen-main">
     <div class="main-top" style="padding:10px 24px 8px;">
       <div class="main-greeting" style="font-size:16px;">Привет, Алексей</div>
       <div class="main-sub">Ты — архитектор своей реальности.</div>
@@ -580,6 +597,9 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
       <span style="font-size:12.5px;color:rgba(255,255,255,0.55);">💰 Баланс Polza: <span id="balance-amount" style="color:rgba(139,92,246,0.95);font-weight:600;">—</span></span>
       <button onclick="loadBalance()" style="background:none;border:none;color:rgba(255,255,255,0.35);font-size:14px;cursor:pointer;padding:4px;">↻</button>
     </div>
+    <div style="padding:8px 16px 0;">
+      <button onclick="logout()" style="width:100%;background:rgba(255,80,80,0.08);border:0.5px solid rgba(255,80,80,0.25);border-radius:12px;padding:9px;color:rgba(255,110,110,0.85);font-size:12.5px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;">Выйти из аккаунта</button>
+    </div>
     <div class="hist-list" id="prompt-list" style="padding:16px;overflow-y:auto;flex:1;"></div>
     <div class="chat-input-wrap">
       <div class="chat-input-row">
@@ -616,7 +636,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
   </div>
 
   <!-- DOCK -->
-  <div class="dock">
+  <div class="dock" style="display:none;">
     <button class="dock-item active" id="dock-main" onclick="goTo('main')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
         <circle cx="12" cy="12" r="3"/>
@@ -649,6 +669,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, orderBy, query, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAm5Sr2UO0PfKMe3YFkQ_XsWonKUMGDOKo",
@@ -661,15 +682,22 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const notesCol = collection(db, "notes");
-const chatCol = collection(db, "chat");
-const promptRulesCol = collection(db, "promptRules");
+const auth = getAuth(app);
+
+let currentUid = null; // назначается после входа, все данные пользователя лежат под users/{currentUid}/...
+
+function uCol(name) { return collection(db, 'users', currentUid, name); }
+function uDocRef(name, id) { return doc(db, 'users', currentUid, name, id); }
+
+function notesCol() { return uCol('notes'); }
+function chatCol() { return uCol('chat'); }
+function promptRulesCol() { return uCol('promptRules'); }
 
 let promptRules = []; // [{id, text, createdAt, source}]
 
 async function loadPromptRules() {
   try {
-    const q = query(promptRulesCol, orderBy('createdAt', 'asc'));
+    const q = query(promptRulesCol(), orderBy('createdAt', 'asc'));
     const snap = await getDocs(q);
     promptRules = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch(e) { console.error('prompt rules load error', e); }
@@ -678,7 +706,7 @@ async function loadPromptRules() {
 async function addPromptRule(text, source) {
   if (!text.trim()) return;
   try {
-    const ref = await addDoc(promptRulesCol, { text: text.trim(), source: source || 'manual', createdAt: new Date().toISOString() });
+    const ref = await addDoc(promptRulesCol(), { text: text.trim(), source: source || 'manual', createdAt: new Date().toISOString() });
     promptRules.push({ id: ref.id, text: text.trim(), source: source || 'manual', createdAt: new Date().toISOString() });
     renderPromptRules();
   } catch(e) { console.error('prompt rule add error', e); alert('Не удалось сохранить правило: ' + e.message + '\n\nПроверь правила доступа Firestore для коллекции "promptRules"'); }
@@ -686,7 +714,7 @@ async function addPromptRule(text, source) {
 
 async function deletePromptRule(id) {
   try {
-    await deleteDoc(doc(db, 'promptRules', id));
+    await deleteDoc(uDocRef('promptRules', id));
     promptRules = promptRules.filter(r => r.id !== id);
     renderPromptRules();
   } catch(e) { console.error('prompt rule delete error', e); }
@@ -731,7 +759,7 @@ let editingId = null;
 let activeTag = null;
 
 // ── ТЕГИ (единый источник для главного экрана и ИИ в чате) ──
-const tagsCol = collection(db, "tags");
+function tagsCol() { return uCol('tags'); }
 let tags = []; // [{id, label, icon, createdAt}]
 
 const DEFAULT_TAGS = [
@@ -746,14 +774,14 @@ const DEFAULT_TAGS = [
 
 async function loadTags() {
   try {
-    const q = query(tagsCol, orderBy('createdAt', 'asc'));
+    const q = query(tagsCol(), orderBy('createdAt', 'asc'));
     const snap = await getDocs(q);
     tags = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
     // Сидирование дефолтных тегов — гарантированно один раз (флаг в meta),
     // устойчиво к обрыву посреди загрузки, и НЕ восстанавливает теги,
     // которые пользователь сознательно удалил после завершённого сидирования.
-    const metaSnap = await getDocs(collection(db, 'meta'));
+    const metaSnap = await getDocs(uCol('meta'));
     const seedFlag = metaSnap.docs.find(d => d.id === 'tags_seed');
     if (!seedFlag || seedFlag.data().done !== true) {
       const existingLabels = new Set(tags.map(t => t.label));
@@ -762,7 +790,7 @@ async function loadTags() {
           await addTag(t.label, t.icon);
         }
       }
-      await setDoc(doc(db, 'meta', 'tags_seed'), { done: true });
+      await setDoc(uDocRef('meta', 'tags_seed'), { done: true });
     }
   } catch(e) {
     console.error('tags load error', e);
@@ -774,7 +802,7 @@ async function loadTags() {
 async function addTag(label, icon) {
   if (!label.trim()) return;
   try {
-    const ref = await addDoc(tagsCol, { label: label.trim(), icon: icon || '🏷️', createdAt: new Date().toISOString() });
+    const ref = await addDoc(tagsCol(), { label: label.trim(), icon: icon || '🏷️', createdAt: new Date().toISOString() });
     tags.push({ id: ref.id, label: label.trim(), icon: icon || '🏷️', createdAt: new Date().toISOString() });
     renderQuickTags();
     renderTagsScreen();
@@ -783,7 +811,7 @@ async function addTag(label, icon) {
 
 async function deleteTag(id) {
   try {
-    await deleteDoc(doc(db, 'tags', id));
+    await deleteDoc(uDocRef('tags', id));
     tags = tags.filter(t => t.id !== id);
     renderQuickTags();
     renderTagsScreen();
@@ -955,7 +983,7 @@ window.setTag = setTag;
 async function saveNote(text, type) {
   if (!text.trim()) return;
   try {
-    await addDoc(notesCol, {
+    await addDoc(notesCol(), {
       text: text.trim(),
       type: type || 'text',
       tag: activeTag || null,
@@ -976,7 +1004,7 @@ async function saveNote(text, type) {
 // ── ЗАГРУЗКА ──
 async function loadNotes() {
   try {
-    const q = query(notesCol, orderBy('createdAt', 'desc'));
+    const q = query(notesCol(), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
     notes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     filterNotes(); // рендерим с учётом активного фильтра по дате/поиску
@@ -1116,7 +1144,7 @@ async function bulkMarkDone() {
   const ids = Array.from(selectedNoteIds);
   try {
     for (const id of ids) {
-      await updateDoc(doc(db, 'notes', id), { done: true, doneAt: new Date().toISOString() });
+      await updateDoc(uDocRef('notes', id), { done: true, doneAt: new Date().toISOString() });
     }
     celebrateTaskDone();
     selectedNoteIds.clear();
@@ -1135,7 +1163,7 @@ async function bulkAddToTodo() {
     let base = minOrder === Infinity ? 0 : minOrder - ids.length - 1;
     for (const id of ids) {
       base += 1;
-      await updateDoc(doc(db, 'notes', id), { inTodo: true, todoOrder: base });
+      await updateDoc(uDocRef('notes', id), { inTodo: true, todoOrder: base });
     }
     selectedNoteIds.clear();
     toggleSelectionMode();
@@ -1150,7 +1178,7 @@ async function bulkDelete() {
   const ids = Array.from(selectedNoteIds);
   try {
     for (const id of ids) {
-      await deleteDoc(doc(db, 'notes', id));
+      await deleteDoc(uDocRef('notes', id));
     }
     selectedNoteIds.clear();
     toggleSelectionMode();
@@ -1186,7 +1214,7 @@ async function saveEdit() {
   const text = document.getElementById('modal-text').value.trim();
   if (!text || !editingId) return;
   try {
-    await updateDoc(doc(db, 'notes', editingId), { text });
+    await updateDoc(uDocRef('notes', editingId), { text });
     closeModal();
     await loadNotes();
   } catch(e) { alert('Ошибка: ' + e.message); }
@@ -1196,7 +1224,7 @@ window.saveEdit = saveEdit;
 async function deleteNote(id) {
   if (!confirm('Удалить запись?')) return;
   try {
-    await deleteDoc(doc(db, 'notes', id));
+    await deleteDoc(uDocRef('notes', id));
     await loadNotes();
   } catch(e) { alert('Ошибка: ' + e.message); }
 }
@@ -1205,7 +1233,7 @@ window.deleteNote = deleteNote;
 async function toggleDone(id, currentDone) {
   try {
     const willBeDone = !currentDone;
-    await updateDoc(doc(db, 'notes', id), {
+    await updateDoc(uDocRef('notes', id), {
       done: willBeDone,
       doneAt: willBeDone ? new Date().toISOString() : null
     });
@@ -1257,7 +1285,7 @@ async function toggleTodo(id, currentInTodo) {
       const minOrder = notes.reduce((m, n) => n.inTodo ? Math.min(m, n.todoOrder ?? Infinity) : m, Infinity);
       update.todoOrder = minOrder === Infinity ? 1 : minOrder - 1;
     }
-    await updateDoc(doc(db, 'notes', id), update);
+    await updateDoc(uDocRef('notes', id), update);
     await loadNotes();
   } catch(e) { alert('Ошибка: ' + e.message); }
 }
@@ -1478,7 +1506,7 @@ async function reorderTodo(id, newIndex) {
   rest.splice(newIndex, 0, dragged);
   try {
     for (let i = 0; i < rest.length; i++) {
-      await updateDoc(doc(db, 'notes', rest[i].id), { todoOrder: i + 1 });
+      await updateDoc(uDocRef('notes', rest[i].id), { todoOrder: i + 1 });
     }
     await loadNotes();
   } catch(e) { alert('Ошибка сортировки: ' + e.message); }
@@ -1513,7 +1541,7 @@ function renderTodo() {
 // экспорт чата
 window.exportChat = async function() {
   try {
-    const q = query(chatCol, orderBy('time', 'asc'));
+    const q = query(chatCol(), orderBy('time', 'asc'));
     const snap = await getDocs(q);
     const data = snap.docs.map(d => d.data());
     const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
@@ -1670,7 +1698,7 @@ let chatAccumulated = '';
 
 async function loadChatHistory() {
   try {
-    const q = query(chatCol, orderBy('time', 'asc'));
+    const q = query(chatCol(), orderBy('time', 'asc'));
     const snap = await getDocs(q);
     chatHistory = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch { chatHistory = []; }
@@ -1678,8 +1706,8 @@ async function loadChatHistory() {
 
 async function deleteChatHistory() {
   try {
-    const snap = await getDocs(chatCol);
-    await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'chat', d.id))));
+    const snap = await getDocs(chatCol());
+    await Promise.all(snap.docs.map(d => deleteDoc(uDocRef('chat', d.id))));
   } catch {}
 }
 
@@ -1716,7 +1744,7 @@ window.resolveConfirm = async function(idx, yes) {
   if (yes) {
     const nd = m.confirmData.note;
     try {
-      await addDoc(notesCol, {
+      await addDoc(notesCol(), {
         text: nd.text, type: 'text',
         tag: nd.tag || null,
         createdAt: new Date().toISOString()
@@ -1737,7 +1765,7 @@ async function addChatMessage(role, content, confirmData) {
   // сохраняем в Firestore БЕЗ confirmData — кнопки только в памяти
   const firestoreMsg = { role, content, time: msg.time };
   try {
-    const docRef = await addDoc(chatCol, firestoreMsg);
+    const docRef = await addDoc(chatCol(), firestoreMsg);
     msg.id = docRef.id;
   } catch(e) { console.error('chat save error', e); }
   renderChat();
@@ -1978,7 +2006,7 @@ async function sendChatMessage(userText) {
     if (doneTarget) {
       const task = notes.find(n => n.text.toLowerCase().includes(doneTarget.toLowerCase()) && !n.done);
       if (task) {
-        await updateDoc(doc(db, 'notes', task.id), { done: true, doneAt: new Date().toISOString() });
+        await updateDoc(uDocRef('notes', task.id), { done: true, doneAt: new Date().toISOString() });
         await loadNotes();
       }
     }
@@ -2035,7 +2063,7 @@ window.clearChatHistory = async function() {
 // экспорт заметок
 window.exportNotes = async function() {
   try {
-    const q = query(notesCol, orderBy('createdAt','asc'));
+    const q = query(notesCol(), orderBy('createdAt','asc'));
     const snap = await getDocs(q);
     const data = snap.docs.map(d => d.data());
     const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
@@ -2153,10 +2181,93 @@ mainScreenEl.addEventListener('mousedown', (e) => { xMouseDown = true; xGestureS
 mainScreenEl.addEventListener('mouseup', (e) => { if (xMouseDown) { xMouseDown = false; xGestureEnd(e.pageX, e.pageY); } });
 
 initTodoDrag();
-loadPromptRules().then(renderPromptRules);
-loadTags().then(() => { renderQuickTags(); renderTagsScreen(); });
-loadChatHistory();
-loadNotes();
+
+// ── АВТОРИЗАЦИЯ ──
+let authMode = 'login'; // 'login' | 'register'
+
+function setAuthError(msg) {
+  document.getElementById('auth-error').textContent = msg || '';
+}
+
+function friendlyAuthError(code) {
+  const map = {
+    'auth/invalid-email': 'Некорректный email',
+    'auth/missing-password': 'Введи пароль',
+    'auth/weak-password': 'Пароль слишком короткий (минимум 6 символов)',
+    'auth/email-already-in-use': 'Этот email уже зарегистрирован',
+    'auth/invalid-credential': 'Неверный email или пароль',
+    'auth/wrong-password': 'Неверный email или пароль',
+    'auth/user-not-found': 'Такого аккаунта нет — зарегистрируйся',
+    'auth/too-many-requests': 'Слишком много попыток, попробуй позже',
+  };
+  return map[code] || 'Ошибка: ' + code;
+}
+
+document.getElementById('auth-toggle-btn').addEventListener('click', () => {
+  authMode = authMode === 'login' ? 'register' : 'login';
+  document.getElementById('auth-title').textContent = authMode === 'login' ? 'Вход' : 'Регистрация';
+  document.getElementById('auth-submit-btn').textContent = authMode === 'login' ? 'Войти' : 'Зарегистрироваться';
+  document.getElementById('auth-toggle-btn').textContent = authMode === 'login' ? 'Нет аккаунта? Зарегистрироваться' : 'Уже есть аккаунт? Войти';
+  setAuthError('');
+});
+
+document.getElementById('auth-submit-btn').addEventListener('click', async () => {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  setAuthError('');
+  if (!email || !password) { setAuthError('Заполни email и пароль'); return; }
+  try {
+    if (authMode === 'login') {
+      await signInWithEmailAndPassword(auth, email, password);
+    } else {
+      await createUserWithEmailAndPassword(auth, email, password);
+    }
+    // дальше подхватит onAuthStateChanged
+  } catch(e) {
+    setAuthError(friendlyAuthError(e.code));
+  }
+});
+
+async function logout() {
+  await signOut(auth);
+}
+window.logout = logout;
+
+function clearLocalUserData() {
+  notes = []; tags = []; promptRules = []; chatHistory = [];
+}
+
+async function initUserData() {
+  await loadTags();
+  renderQuickTags();
+  renderTagsScreen();
+  await loadPromptRules();
+  renderPromptRules();
+  await loadChatHistory();
+  await loadNotes();
+}
+
+onAuthStateChanged(auth, async (user) => {
+  const dockEl = document.querySelector('.dock');
+  const statusEl = document.querySelector('.status');
+  if (user) {
+    currentUid = user.uid;
+    document.getElementById('screen-auth').classList.remove('active');
+    if (dockEl) dockEl.style.display = '';
+    if (statusEl) statusEl.style.display = '';
+    goTo('main');
+    await initUserData();
+  } else {
+    currentUid = null;
+    clearLocalUserData();
+    if (dockEl) dockEl.style.display = 'none';
+    if (statusEl) statusEl.style.display = 'none';
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-auth').classList.add('active');
+    document.getElementById('auth-email').value = '';
+    document.getElementById('auth-password').value = '';
+  }
+});
 </script>
 </body>
 </html>
