@@ -852,92 +852,87 @@ function renderTagsScreen() {
 }
 
 // ── РЕЧЬ ──
-let recognition = null;
-let isRecording = false;
-let accumulated = ''; // финальный накопленный текст
+// ── ГОЛОСОВАЯ ЗАПИСЬ ЧЕРЕЗ WHISPER (Polza) ──
+// Модель удержания: нажал/зажал — идёт запись, отпустил — распознаётся и сохраняется автоматически.
+const POLZA_TRANSCRIBE_URL = 'https://polza.ai/api/v1/audio/transcriptions';
+const WHISPER_MODEL = 'openai/whisper-large-v3';
 
-function getSR() {
-  return window.SpeechRecognition || window.webkitSpeechRecognition;
+let isRecording = false; // true всё время между "нажал" и "отпустил" (включая обработку после)
+let activeRecorder = null;
+let activeStream = null;
+
+async function transcribeAudio(blob) {
+  const formData = new FormData();
+  const ext = (blob.type || '').includes('ogg') ? 'ogg' : 'webm';
+  formData.append('file', blob, 'audio.' + ext);
+  formData.append('model', WHISPER_MODEL);
+  formData.append('language', 'ru');
+  const res = await fetch(POLZA_TRANSCRIBE_URL, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + POLZA_KEY },
+    body: formData
+  });
+  const data = await res.json();
+  if (data.text !== undefined) return data.text.trim();
+  throw new Error(data.error?.message || 'Пустой ответ от сервиса распознавания');
 }
 
-function createRecognition() {
-  const SR = getSR();
-  if (!SR) return null;
-  const r = new SR();
-  r.lang = 'ru-RU';
-  r.continuous = false;      // без continuous — нет дублей и нет потери пробелов
-  r.interimResults = true;
-
-  r.onresult = (e) => {
-    let interim = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) {
-        const chunk = e.results[i][0].transcript.trim();
-        if (chunk) {
-          accumulated = accumulated ? accumulated + ' ' + chunk : chunk;
-        }
-      } else {
-        interim += e.results[i][0].transcript;
-      }
-    }
-    const display = accumulated + (interim ? (accumulated ? ' ' : '') + interim : '');
-    document.getElementById('cap-input').value = display;
-    autoResize();
-    showClear();
-  };
-
-  r.onend = () => {
-    // автоперезапуск, пока пользователь не нажал стоп
-    if (isRecording) {
-      try { recognition.start(); } catch(err) {}
-    }
-  };
-
-  r.onerror = (e) => {
-    if (e.error === 'aborted') return;
-    if (e.error === 'no-speech') return; // тихо — просто ждём
-    stopRecording();
-  };
-
-  return r;
-}
-
-function startRecording() {
-  if (!getSR()) { setStatus('Голосовой ввод не поддерживается'); return; }
-
-  accumulated = '';
-  document.getElementById('cap-input').value = '';
-  autoResize();
-
-  recognition = createRecognition();
-  if (!recognition) return;
-
+// начать запись (вызывается при нажатии/удержании кнопки)
+async function startRecording() {
+  if (isRecording) return;
+  try {
+    activeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch(e) {
+    setStatus('⚠️ Нет доступа к микрофону');
+    return;
+  }
   isRecording = true;
   setMicState(true);
-  setStatus('🎤 Говорите...');
-  try { recognition.start(); } catch(e) {}
+  setStatus('🎙️ Слушаю...');
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+  activeRecorder = mimeType ? new MediaRecorder(activeStream, { mimeType }) : new MediaRecorder(activeStream);
+  const chunks = [];
+  activeRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+  activeRecorder.onstop = async () => {
+    activeStream.getTracks().forEach(t => t.stop());
+    activeStream = null;
+    const blob = new Blob(chunks, { type: activeRecorder.mimeType || 'audio/webm' });
+    activeRecorder = null;
+    await handleRecordedAudio(blob);
+  };
+  activeRecorder.start();
 }
 
+// закончить запись (вызывается при отпускании кнопки) — дальше распознавание и сохранение идёт само
 function stopRecording() {
-  isRecording = false;
+  if (!activeRecorder || activeRecorder.state === 'inactive') { isRecording = false; setMicState(false); return; }
   setMicState(false);
-  setStatus('');
-  if (recognition) {
-    try { recognition.stop(); } catch(e) {}
-    recognition = null;
-  }
+  setStatus('⏳ Распознаю...');
+  activeRecorder.stop(); // onstop асинхронно вызовет handleRecordedAudio
 }
 
-function toggleRecording() {
-  if (isRecording) {
-    stopRecording();
-    // небольшая пауза чтобы финальный результат успел записаться в поле
-    setTimeout(() => {
-      const text = document.getElementById('cap-input').value.trim();
-      if (text) saveNote(text, 'voice');
-    }, 150);
-  } else {
-    startRecording();
+// общая обработка записанного аудио для главного экрана — распознаём и сразу сохраняем как заметку
+async function handleRecordedAudio(blob) {
+  try {
+    if (blob.size < 1000) { // слишком короткая запись — почти наверняка случайное касание
+      setStatus('');
+      isRecording = false;
+      return;
+    }
+    const text = await transcribeAudio(blob);
+    if (!text) {
+      setStatus('🤔 Не расслышал, попробуй ещё раз');
+      setTimeout(() => setStatus(''), 2000);
+    } else {
+      await saveNote(text, 'voice');
+      setStatus('✅ Добавлено: «' + (text.length > 40 ? text.slice(0,40)+'…' : text) + '»');
+      setTimeout(() => setStatus(''), 2200);
+    }
+  } catch(e) {
+    setStatus('⚠️ Ошибка распознавания: ' + e.message);
+    setTimeout(() => setStatus(''), 2500);
+  } finally {
+    isRecording = false;
   }
 }
 
@@ -1582,24 +1577,43 @@ document.getElementById('cap-input').addEventListener('input', () => { autoResiz
 document.getElementById('cap-send').addEventListener('click', () => {
   const text = document.getElementById('cap-input').value.trim();
   if (!text) return;
-  if (isRecording) {
-    stopRecording();
-    setTimeout(() => saveNote(text, 'voice'), 150);
-  } else {
-    saveNote(text, 'text');
-  }
+  saveNote(text, 'text');
 });
 
-document.getElementById('cap-mic').addEventListener('click', toggleRecording);
+// Голосовая запись — по удержанию: нажал/зажал = идёт запись, отпустил = распознаётся и сохраняется само.
+// Реагируем и на touch (телефон), и на mouse (для теста в браузере на компьютере).
+function bindHoldToRecord(el, onStart, onStop) {
+  let pressed = false;
+  const onDown = (e) => {
+    if (pressed) return;
+    pressed = true;
+    e.preventDefault();
+    e.stopPropagation();
+    onStart();
+  };
+  const onUp = () => {
+    if (!pressed) return;
+    pressed = false;
+    onStop();
+  };
+  el.addEventListener('touchstart', onDown, { passive: false });
+  el.addEventListener('touchend', onUp);
+  el.addEventListener('touchcancel', onUp);
+  el.addEventListener('mousedown', onDown);
+  el.addEventListener('mouseup', onUp);
+  el.addEventListener('mouseleave', onUp); // увели палец/курсор — считаем что отпустили
+  el.style.webkitTouchCallout = 'none';
+  el.style.userSelect = 'none';
+}
+bindHoldToRecord(document.getElementById('cap-mic'), startRecording, stopRecording);
 
 document.getElementById('cap-clear').addEventListener('click', () => {
   document.getElementById('cap-input').value = '';
   document.getElementById('cap-input').style.height = 'auto';
   showClear();
-  if (isRecording) stopRecording();
 });
 
-document.getElementById('chaos-btn').addEventListener('click', toggleRecording);
+bindHoldToRecord(document.getElementById('chaos-btn'), startRecording, stopRecording);
 
 document.getElementById('cap-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -1700,9 +1714,6 @@ function buildChatTools() {
 }
 
 let chatHistory = [];
-let chatRecognition = null;
-let isChatRecording = false;
-let chatAccumulated = '';
 
 async function loadChatHistory() {
   try {
@@ -2084,54 +2095,73 @@ window.exportNotes = async function() {
   } catch(e) { alert('Ошибка экспорта: ' + e.message); }
 };
 
-// голос в чате
-function createChatRecognition() {
-  const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
-  if (!SR) return null;
-  const r = new SR();
-  r.lang='ru-RU'; r.continuous=false; r.interimResults=true;
-  r.onresult = (e) => {
-    let interim='';
-    for (let i=e.resultIndex;i<e.results.length;i++) {
-      if (e.results[i].isFinal) { const c=e.results[i][0].transcript.trim(); if(c) chatAccumulated=chatAccumulated?chatAccumulated+' '+c:c; }
-      else interim+=e.results[i][0].transcript;
-    }
-    document.getElementById('chat-input').value=chatAccumulated+(interim?(chatAccumulated?' ':'')+interim:'');
-    chatAutoResize();
-  };
-  r.onend=()=>{ if(isChatRecording){try{chatRecognition.start();}catch{}} };
-  r.onerror=(e)=>{ if(e.error==='aborted'||e.error==='no-speech')return; stopChatRecording(); };
-  return r;
-}
-function startChatRecording() {
-  chatAccumulated='';
-  document.getElementById('chat-input').value='';
-  chatRecognition=createChatRecognition();
-  if(!chatRecognition)return;
-  isChatRecording=true;
+// голос в чате — та же модель удержания: зажал, сказал, отпустил — само распознаётся и уходит в чат
+let chatActiveRecorder = null;
+let chatActiveStream = null;
+let isChatRecording = false;
+
+async function startChatRecording() {
+  if (isChatRecording) return;
+  try {
+    chatActiveStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch(e) {
+    document.getElementById('chat-subtitle').textContent = '⚠️ Нет доступа к микрофону';
+    return;
+  }
+  isChatRecording = true;
   document.getElementById('chat-mic').classList.add('recording');
-  try{chatRecognition.start();}catch{}
+  document.getElementById('chat-subtitle').textContent = '🎙️ Слушаю...';
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+  chatActiveRecorder = mimeType ? new MediaRecorder(chatActiveStream, { mimeType }) : new MediaRecorder(chatActiveStream);
+  const chunks = [];
+  chatActiveRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+  chatActiveRecorder.onstop = async () => {
+    chatActiveStream.getTracks().forEach(t => t.stop());
+    chatActiveStream = null;
+    const blob = new Blob(chunks, { type: chatActiveRecorder.mimeType || 'audio/webm' });
+    chatActiveRecorder = null;
+    await handleChatRecordedAudio(blob);
+  };
+  chatActiveRecorder.start();
 }
+
 function stopChatRecording() {
-  isChatRecording=false;
   document.getElementById('chat-mic').classList.remove('recording');
-  if(chatRecognition){try{chatRecognition.stop();}catch{} chatRecognition=null;}
+  if (!chatActiveRecorder || chatActiveRecorder.state === 'inactive') { isChatRecording = false; return; }
+  document.getElementById('chat-subtitle').textContent = '⏳ Распознаю...';
+  chatActiveRecorder.stop(); // onstop асинхронно вызовет handleChatRecordedAudio
 }
-function toggleChatRecording() {
-  if(isChatRecording){
-    stopChatRecording();
-    setTimeout(()=>{
-      const text=document.getElementById('chat-input').value.trim();
-      if(text){document.getElementById('chat-input').value='';chatAutoResize();sendChatMessage(text);}
-    },150);
-  } else { startChatRecording(); }
+
+async function handleChatRecordedAudio(blob) {
+  try {
+    if (blob.size < 1000) { // случайное короткое касание
+      document.getElementById('chat-subtitle').textContent = 'Готов помочь';
+      isChatRecording = false;
+      return;
+    }
+    const text = await transcribeAudio(blob);
+    document.getElementById('chat-subtitle').textContent = 'Готов помочь';
+    if (!text) {
+      document.getElementById('chat-subtitle').textContent = '🤔 Не расслышал, попробуй ещё раз';
+      setTimeout(() => { document.getElementById('chat-subtitle').textContent = 'Готов помочь'; }, 2000);
+    } else {
+      await sendChatMessage(text); // распознанное сразу уходит в чат как обычное сообщение
+    }
+  } catch(e) {
+    document.getElementById('chat-subtitle').textContent = '⚠️ Ошибка распознавания';
+    setTimeout(() => { document.getElementById('chat-subtitle').textContent = 'Готов помочь'; }, 2500);
+  } finally {
+    isChatRecording = false;
+  }
 }
+
 function chatAutoResize() {
   const ta=document.getElementById('chat-input');
   ta.style.height='auto';
   ta.style.height=Math.min(ta.scrollHeight,120)+'px';
 }
-document.getElementById('chat-mic').addEventListener('click',toggleChatRecording);
+bindHoldToRecord(document.getElementById('chat-mic'), startChatRecording, stopChatRecording);
+
 document.getElementById('chat-send').addEventListener('click',()=>{
   const text=document.getElementById('chat-input').value.trim();
   if(!text)return;
