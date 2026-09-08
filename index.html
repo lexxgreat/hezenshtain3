@@ -387,8 +387,13 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
   <div class="orb" style="width:240px;height:240px;background:rgba(0,212,255,0.11);top:280px;right:-80px;animation-delay:-4s"></div>
   <div class="orb" style="width:190px;height:190px;background:rgba(168,85,247,0.14);bottom:140px;left:-20px;animation-delay:-6.5s"></div>
 
+  <!-- ── SPLASH (нейтральный экран, пока проверяем сессию) ── -->
+  <div class="screen active" id="screen-splash" style="justify-content:center;align-items:center;">
+    <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:rgba(108,71,255,0.6);font-weight:600;">ХЭЗЭНШТЕЙН</div>
+  </div>
+
   <!-- ── AUTH SCREEN (вход / регистрация) ── -->
-  <div class="screen active" id="screen-auth" style="justify-content:center;align-items:center;padding:0 28px;">
+  <div class="screen" id="screen-auth" style="justify-content:center;align-items:center;padding:0 28px;">
     <div style="text-align:center;margin-bottom:28px;">
       <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:rgba(108,71,255,0.7);font-weight:600;margin-bottom:10px;">ХЭЗЭНШТЕЙН</div>
       <div style="font-size:18px;color:rgba(255,255,255,0.9);font-weight:500;" id="auth-title">Вход</div>
@@ -398,6 +403,8 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
         style="background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.15);border-radius:12px;padding:13px 16px;color:#fff;font-size:14px;font-family:'Inter',sans-serif;outline:none;">
       <input type="password" id="auth-password" placeholder="Пароль" autocomplete="current-password"
         style="background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.15);border-radius:12px;padding:13px 16px;color:#fff;font-size:14px;font-family:'Inter',sans-serif;outline:none;">
+      <input type="password" id="auth-password2" placeholder="Повтори пароль" autocomplete="new-password"
+        style="display:none;background:rgba(255,255,255,0.05);border:0.5px solid rgba(255,255,255,0.15);border-radius:12px;padding:13px 16px;color:#fff;font-size:14px;font-family:'Inter',sans-serif;outline:none;">
       <div id="auth-error" style="color:rgba(255,90,90,0.9);font-size:12.5px;min-height:16px;text-align:center;"></div>
       <button id="auth-submit-btn" style="background:linear-gradient(135deg,#6C47FF,#8B5CF6);border:none;border-radius:12px;padding:13px;color:#fff;font-size:14.5px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;margin-top:4px;">Войти</button>
       <button id="auth-toggle-btn" style="background:none;border:none;color:rgba(255,255,255,0.4);font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;padding:8px;">Нет аккаунта? Зарегистрироваться</button>
@@ -2209,6 +2216,8 @@ document.getElementById('auth-toggle-btn').addEventListener('click', () => {
   document.getElementById('auth-title').textContent = authMode === 'login' ? 'Вход' : 'Регистрация';
   document.getElementById('auth-submit-btn').textContent = authMode === 'login' ? 'Войти' : 'Зарегистрироваться';
   document.getElementById('auth-toggle-btn').textContent = authMode === 'login' ? 'Нет аккаунта? Зарегистрироваться' : 'Уже есть аккаунт? Войти';
+  document.getElementById('auth-password2').style.display = authMode === 'register' ? '' : 'none';
+  document.getElementById('auth-password2').value = '';
   setAuthError('');
 });
 
@@ -2217,6 +2226,11 @@ document.getElementById('auth-submit-btn').addEventListener('click', async () =>
   const password = document.getElementById('auth-password').value;
   setAuthError('');
   if (!email || !password) { setAuthError('Заполни email и пароль'); return; }
+  if (authMode === 'register') {
+    const password2 = document.getElementById('auth-password2').value;
+    if (!password2) { setAuthError('Повтори пароль во втором поле'); return; }
+    if (password !== password2) { setAuthError('Пароли не совпадают'); return; }
+  }
   try {
     if (authMode === 'login') {
       await signInWithEmailAndPassword(auth, email, password);
@@ -2273,6 +2287,7 @@ async function initUserData() {
 onAuthStateChanged(auth, async (user) => {
   const dockEl = document.querySelector('.dock');
   const statusEl = document.querySelector('.status');
+  document.getElementById('screen-splash').classList.remove('active'); // сплэш скрываем в любом случае — статус уже известен
   if (user) {
     currentUid = user.uid;
     document.getElementById('screen-auth').classList.remove('active');
@@ -2289,6 +2304,7 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById('screen-auth').classList.add('active');
     document.getElementById('auth-email').value = '';
     document.getElementById('auth-password').value = '';
+    document.getElementById('auth-password2').value = '';
   }
 });
 </script>
