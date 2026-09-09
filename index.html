@@ -894,7 +894,8 @@ async function transcribeAudio(blob) {
   formData.append('file', blob, 'audio.' + ext);
   formData.append('model', WHISPER_MODEL);
   formData.append('language', 'ru');
-  formData.append('temperature', '0'); // минимум случайности — меньше шансов на "творческую" галлюцинацию
+  // temperature не передаём — API Polza отклоняет запрос с этим параметром (ошибка валидации),
+  // защита от галлюцинаций реализована на нашей стороне через isWhisperHallucination()
   const res = await fetch(POLZA_TRANSCRIBE_URL, {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + POLZA_KEY },
