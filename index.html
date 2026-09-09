@@ -481,8 +481,8 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
       </button>
 
       <div class="chaos-hint">
-        <div class="chaos-hint-tap">Нажми — начать запись</div>
-        <div class="chaos-hint-voice">Нажми ещё раз — отправить</div>
+        <div class="chaos-hint-tap">Зажми и говори</div>
+        <div class="chaos-hint-voice">Отпусти — чтобы отправить</div>
       </div>
 
       <div class="save-flash" id="save-flash">✓ Сохранено</div>
@@ -861,19 +861,51 @@ let isRecording = false; // true всё время между "нажал" и "�
 let activeRecorder = null;
 let activeStream = null;
 
+// известные фразы-галлюцинации Whisper на тишине/шуме (обучен на субтитрах YouTube — при отсутствии
+// реальной речи модель вместо признания "тишина" выдаёт одну из этих типовых концовок роликов)
+const WHISPER_HALLUCINATION_PATTERNS = [
+  /продолжение следует/i,
+  /подпис(ывайтесь|ывайся)\s*на канал/i,
+  /спасибо за просмотр/i,
+  /не забудьте подписаться/i,
+  /ставь?те лайк/i,
+  /до встречи в следующем/i,
+  /субтитры (сделал|создавал|редактировал)/i,
+  /редактор субтитров/i,
+];
+
+function isWhisperHallucination(text) {
+  if (!text) return false;
+  if (WHISPER_HALLUCINATION_PATTERNS.some(re => re.test(text))) return true;
+  // общий признак галлюцинации: одна и та же фраза повторяется подряд 2+ раза
+  // (Whisper на тишине часто зацикливается именно так, независимо от конкретных слов)
+  const chunks = text.split(/[.!?…]+/).map(s => s.trim().toLowerCase()).filter(s => s.length > 3);
+  const counts = {};
+  for (const c of chunks) {
+    counts[c] = (counts[c] || 0) + 1;
+    if (counts[c] >= 2) return true;
+  }
+  return false;
+}
+
 async function transcribeAudio(blob) {
   const formData = new FormData();
   const ext = (blob.type || '').includes('ogg') ? 'ogg' : 'webm';
   formData.append('file', blob, 'audio.' + ext);
   formData.append('model', WHISPER_MODEL);
   formData.append('language', 'ru');
+  formData.append('temperature', '0'); // минимум случайности — меньше шансов на "творческую" галлюцинацию
   const res = await fetch(POLZA_TRANSCRIBE_URL, {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + POLZA_KEY },
     body: formData
   });
   const data = await res.json();
-  if (data.text !== undefined) return data.text.trim();
+  if (data.text !== undefined) {
+    const text = data.text.trim();
+    if (isWhisperHallucination(text)) return ''; // похоже на типовую галлюцинацию — считаем что речи не было
+    return text;
+  }
   throw new Error(data.error?.message || 'Пустой ответ от сервиса распознавания');
 }
 
