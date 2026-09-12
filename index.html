@@ -431,6 +431,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     </div>
 
     <div id="focus-card-wrap"></div>
+    <div id="main-hint" style="padding:0 16px;"></div>
 
     <!-- Capture row -->
     <div class="capture-wrap">
@@ -507,6 +508,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
         </div>
       </div>
     </div>
+    <div id="todo-hint" style="padding:0 16px;"></div>
     <div class="hist-list" id="todo-list" style="padding-top:8px;">
       <div class="hist-empty"><div class="hist-empty-icon">📋</div>Список пуст — добавь задачи из Истории кнопкой «В тудулист»</div>
     </div>
@@ -542,6 +544,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
         <div><div class="hist-title">🌠 Желания</div><div class="hist-sub" id="wishes-count">до 3 одновременно</div></div>
       </div>
     </div>
+    <div id="wishes-hint" style="padding:0 16px;"></div>
     <div class="hist-list" id="wishes-list" style="padding-top:8px;"></div>
     <div class="chat-input-wrap">
       <div class="chat-input-row">
@@ -794,6 +797,7 @@ async function addPromptRule(text, source) {
     const ref = await addDoc(promptRulesCol(), { text: text.trim(), source: source || 'manual', createdAt: new Date().toISOString() });
     promptRules.push({ id: ref.id, text: text.trim(), source: source || 'manual', createdAt: new Date().toISOString() });
     renderPromptRules();
+    updateMainGreeting();
   } catch(e) { console.error('prompt rule add error', e); alert('Не удалось сохранить правило: ' + e.message + '\n\nПроверь правила доступа Firestore для коллекции "promptRules"'); }
 }
 
@@ -805,6 +809,14 @@ async function deletePromptRule(id) {
   } catch(e) { console.error('prompt rule delete error', e); }
 }
 window.deletePromptRule = deletePromptRule;
+
+function updateMainGreeting() {
+  const el = document.querySelector('.main-greeting');
+  if (!el) return;
+  const rule = promptRules.find(r => /зовут\s+([А-ЯЁ][а-яё]+)/i.test(r.text));
+  const m = rule && rule.text.match(/зовут\s+([А-ЯЁ][а-яё]+)/i);
+  el.textContent = m ? 'Привет, ' + m[1] + ' 👋' : 'Привет 👋';
+}
 
 function renderPromptRules() {
   const el = document.getElementById('prompt-list');
@@ -1824,6 +1836,26 @@ document.getElementById('wishchat-send').addEventListener('click', async () => {
 });
 document.getElementById('wishchat-input').addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('wishchat-send').click();} });
 
+// ── ПРОГРЕССИВНЫЕ ПОДСКАЗКИ (показываются один раз) ──
+let hintsShown = new Set();
+async function loadHints() {
+  try { const snap = await getDocs(uCol('meta')); const d = snap.docs.find(x=>x.id==='hints_shown'); hintsShown = new Set(d ? (d.data().ids||[]) : []); } catch(e) {}
+}
+function showHintOnce(id, text, elId) {
+  if (hintsShown.has(id)) return;
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.innerHTML = `<div class="note-card" style="border-color:rgba(139,92,246,0.4);background:rgba(108,71,255,0.08);"><div class="note-text">💡 ${text}</div><div class="note-actions"><button class="note-btn note-undone" onclick="dismissHint('${id}')">Понял</button></div></div>`;
+}
+async function dismissHint(id) {
+  hintsShown.add(id);
+  document.getElementById('todo-hint') && (document.getElementById('todo-hint').innerHTML = '');
+  document.getElementById('main-hint') && (document.getElementById('main-hint').innerHTML = '');
+  document.getElementById('wishes-hint') && (document.getElementById('wishes-hint').innerHTML = '');
+  try { await setDoc(uDocRef('meta','hints_shown'), { ids:[...hintsShown] }); } catch(e) {}
+}
+window.dismissHint = dismissHint;
+
 function getTodoQueue() {
   return notes.filter(n => n.inTodo === true && !n.done).sort((a,b) => (a.todoOrder||0) - (b.todoOrder||0));
 }
@@ -2113,7 +2145,9 @@ function goTo(screen) {
   if (screen === 'prompt') { renderPromptRules(); loadBalance(); }
   if (screen === 'tags') renderTagsScreen();
   if (screen === 'cloud') renderWordCloud();
-  if (screen === 'wishes') renderWishes();
+  if (screen === 'wishes') { renderWishes(); showHintOnce('wishes_intro','У каждого желания свой отдельный чат с ИИ — обсуди план прямо там.','wishes-hint'); }
+  if (screen === 'todo') showHintOnce('todo_drag','Тащи за ⠿ чтобы поменять порядок — соседи подвинутся сами.','todo-hint');
+  if (screen === 'main') showHintOnce('main_x','Перечеркни весь экран крест-накрест («Х») — отметит текущую задачу выполненной.','main-hint');
 }
 window.goTo = goTo;
 
@@ -2447,7 +2481,7 @@ function buildSystemPrompt() {
 
   return `Ты — личный ИИ-ассистент пользователя в приложении Hazenstein. Сейчас: ${todayStr}.
 
-ЗНАКОМСТВО: если в разделе "ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ" ниже нет имени пользователя — вежливо спроси, как к нему обращаться, при первом же удобном случае в диалоге (не обязательно первым сообщением, если пользователь уже начал с чего-то другого — сначала ответь по существу, а имя спроси следом). Когда пользователь назовёт имя, предложи запомнить его через update_prompt как обычно (с подтверждением, по общему правилу выше).
+ЗНАКОМСТВО: если в разделе "ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ" ниже нет имени пользователя — вежливо спроси, как к нему обращаться, при первом же удобном случае в диалоге (не обязательно первым сообщением, если пользователь уже начал с чего-то другого — сначала ответь по существу, а имя спроси следом). Когда пользователь назовёт имя, предложи запомнить его через update_prompt как обычно (с подтверждением, по общему правилу выше), и сформулируй rule СТРОГО в виде "Пользователя зовут Имя" (без лишних слов) — это нужно чтобы имя можно было показать на главном экране.
 
 ТУДУШКА (текущая очередь дел на выполнение прямо сейчас, по приоритету — пункт 1 самый первостепенный):
 ${todoContext}
@@ -2915,10 +2949,11 @@ async function initUserData() {
   // 4 похода в базу не зависят друг от друга — грузим параллельно, а не по очереди
   await Promise.all([
     loadTags().then(() => { renderQuickTags(); renderTagsScreen(); }),
-    loadPromptRules().then(renderPromptRules),
+    loadPromptRules().then(() => { renderPromptRules(); updateMainGreeting(); }),
     loadChatHistory(),
     loadNotes(), // сама рендерит Историю, Тудушку и карточку фокуса по завершении
     loadWishes(),
+    loadHints(),
   ]);
   checkTagSuggestions(); // не блокируем интерфейс — проверяем в фоне, банер появится когда будет готов
 }
@@ -2934,6 +2969,7 @@ onAuthStateChanged(auth, async (user) => {
     if (statusEl) statusEl.style.display = '';
     goTo('main');
     await initUserData();
+    showHintOnce('main_x','Перечеркни весь экран крест-накрест («Х») — отметит текущую задачу выполненной.','main-hint');
   } else {
     currentUid = null;
     clearLocalUserData();
