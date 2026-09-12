@@ -1825,10 +1825,22 @@ document.getElementById('wishchat-send').addEventListener('click', async () => {
   renderWishChat();
   await addDoc(wishMessagesCol(currentWishId), userMsg);
 
-  const sysPrompt = `Ты помогаешь пользователю добиться конкретной цели-желания: "${w.text}". Держись только этой темы. Задавай уточняющие вопросы, помогай построить конкретный пошаговый план, будь кратким и по-русски.`;
+  const sysPrompt = `Ты помогаешь пользователю добиться конкретной цели-желания: "${w.text}". Держись только этой темы. Задавай уточняющие вопросы, помогай построить конкретный пошаговый план, будь кратким и по-русски. Если пользователь просит добавить конкретный шаг как задачу — вызови propose_note.`;
   const apiMsgs = [{role:'system',content:sysPrompt}, ...wishChatMessages.map(m=>({role:m.role,content:m.content}))];
   const msg = await callChatAPI(apiMsgs);
-  const reply = (msg && msg.content) ? msg.content.trim() : '...';
+  let reply = (msg && msg.content) ? msg.content.trim() : '';
+  const call = (msg && msg.tool_calls || []).find(c => c.function.name === 'propose_note');
+  if (call) {
+    try {
+      const args = JSON.parse(call.function.arguments || '{}');
+      if (args.text) {
+        await addDoc(notesCol(), { text: args.text, type:'text', tag: args.tag || null, createdAt: new Date().toISOString() });
+        await loadNotes();
+        reply = (reply ? reply + '\n\n' : '') + '✅ Добавил в задачи: «' + args.text + '»';
+      }
+    } catch(e) {}
+  }
+  if (!reply) reply = '...';
   const aiMsg = { role:'assistant', content:reply, time:new Date().toISOString() };
   wishChatMessages.push(aiMsg);
   renderWishChat();
@@ -2147,7 +2159,6 @@ function goTo(screen) {
   if (screen === 'cloud') renderWordCloud();
   if (screen === 'wishes') { renderWishes(); showHintOnce('wishes_intro','У каждого желания свой отдельный чат с ИИ — обсуди план прямо там.','wishes-hint'); }
   if (screen === 'todo') showHintOnce('todo_drag','Тащи за ⠿ чтобы поменять порядок — соседи подвинутся сами.','todo-hint');
-  if (screen === 'main') showHintOnce('main_x','Перечеркни весь экран крест-накрест («Х») — отметит текущую задачу выполненной.','main-hint');
 }
 window.goTo = goTo;
 
@@ -2953,7 +2964,6 @@ async function initUserData() {
     loadChatHistory(),
     loadNotes(), // сама рендерит Историю, Тудушку и карточку фокуса по завершении
     loadWishes(),
-    loadHints(),
   ]);
   checkTagSuggestions(); // не блокируем интерфейс — проверяем в фоне, банер появится когда будет готов
 }
@@ -2967,6 +2977,7 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById('screen-auth').classList.remove('active');
     if (dockEl) dockEl.style.display = '';
     if (statusEl) statusEl.style.display = '';
+    await loadHints(); // важно ДО goTo — иначе подсказка может мигнуть даже если уже скрыта раньше
     goTo('main');
     await initUserData();
     showHintOnce('main_x','Перечеркни весь экран крест-накрест («Х») — отметит текущую задачу выполненной.','main-hint');
