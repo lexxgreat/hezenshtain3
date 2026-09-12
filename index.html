@@ -426,7 +426,7 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
   <!-- ── MAIN SCREEN ── -->
   <div class="screen" id="screen-main">
     <div class="main-top" style="padding:10px 24px 8px;">
-      <div class="main-greeting" style="font-size:16px;">Привет, Алексей</div>
+      <div class="main-greeting" style="font-size:16px;">Привет 👋</div>
       <div class="main-sub">Ты — архитектор своей реальности.</div>
     </div>
 
@@ -459,7 +459,8 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     <!-- Quick tags -->
     <div style="display:flex;align-items:center;gap:6px;padding:0 16px;">
       <div class="qtags" id="qtags-list" style="flex:1;padding:10px 0 0;justify-content:flex-start;"></div>
-      <button onclick="goTo('tags')" title="Управление тегами" style="background:none;border:none;color:rgba(255,255,255,0.25);font-size:15px;cursor:pointer;padding:4px;flex-shrink:0;">⚙️</button>
+      <button onclick="goTo('prompt')" title="Настройки" style="background:none;border:none;color:rgba(255,255,255,0.25);font-size:15px;cursor:pointer;padding:4px;flex-shrink:0;">⚙️</button>
+      <button onclick="goTo('wishes')" title="Желания" style="background:none;border:none;color:rgba(255,215,0,0.6);font-size:16px;cursor:pointer;padding:4px;flex-shrink:0;">🌠</button>
     </div>
 
     <!-- Big chaos button -->
@@ -531,6 +532,39 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     <div id="cloud-generated-at" style="text-align:center;font-size:10.5px;color:rgba(255,255,255,0.3);padding-bottom:4px;"></div>
     <div style="flex:1;overflow-y:auto;padding:0 8px 16px;display:flex;flex-direction:column;align-items:center;">
       <canvas id="cloud-canvas" style="max-width:100%;"></canvas>
+    </div>
+  </div>
+
+  <!-- ── WISHES SCREEN ── -->
+  <div class="screen" id="screen-wishes">
+    <div class="hist-header">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><div class="hist-title">🌠 Желания</div><div class="hist-sub" id="wishes-count">до 3 одновременно</div></div>
+      </div>
+    </div>
+    <div class="hist-list" id="wishes-list" style="padding-top:8px;"></div>
+    <div class="chat-input-wrap">
+      <div class="chat-input-row">
+        <textarea class="chat-textarea" id="wish-input" placeholder="Загадай желание..." rows="1"></textarea>
+        <button class="chat-send-btn" id="wish-add-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,0.95)" stroke-width="2" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="rgba(139,92,246,0.95)" stroke="none"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── WISH CHAT SCREEN ── -->
+  <div class="screen" id="screen-wishchat">
+    <div class="chat-header">
+      <button class="chat-clear-btn" onclick="goTo('wishes')" title="Назад">←</button>
+      <div class="chat-title-wrap"><div class="chat-title" id="wishchat-title">Желание</div><div class="chat-subtitle">Обсуди план с ИИ</div></div>
+    </div>
+    <div class="chat-messages" id="wishchat-messages"></div>
+    <div class="chat-input-wrap">
+      <div class="chat-input-row">
+        <textarea class="chat-textarea" id="wishchat-input" placeholder="Напиши..." rows="1"></textarea>
+        <button class="chat-send-btn" id="wishchat-send"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,0.95)" stroke-width="2" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="rgba(139,92,246,0.95)" stroke="none"/></svg></button>
+      </div>
     </div>
   </div>
 
@@ -634,9 +668,12 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
     <div class="chat-header">
       <button class="chat-clear-btn" onclick="goTo('chat')" title="Назад">←</button>
       <div class="chat-title-wrap">
-        <div class="chat-title">Промпт ИИ</div>
+        <div class="chat-title">Настройки</div>
         <div class="chat-subtitle" id="prompt-count">0 правил</div>
       </div>
+    </div>
+    <div style="padding:12px 16px 0;">
+      <button onclick="goTo('tags')" style="width:100%;background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.1);border-radius:12px;padding:9px;color:rgba(255,255,255,0.7);font-size:12.5px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;">🏷️ Управление тегами</button>
     </div>
     <div id="balance-widget" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;margin:12px 16px 0;background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.1);border-radius:12px;">
       <span style="font-size:12.5px;color:rgba(255,255,255,0.55);">💰 Баланс Polza: <span id="balance-amount" style="color:rgba(139,92,246,0.95);font-weight:600;">—</span></span>
@@ -1693,6 +1730,100 @@ async function renderWordCloud() {
   if (!shown) await regenerateWordCloud();
 }
 
+// ── ЖЕЛАНИЯ ──
+let wishes = [];
+let currentWishId = null;
+let wishChatMessages = [];
+
+async function loadWishes() {
+  try {
+    const snap = await getDocs(query(uCol('wishes'), orderBy('createdAt','asc')));
+    wishes = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  } catch(e) { wishes = []; }
+}
+
+function renderWishes() {
+  const el = document.getElementById('wishes-list');
+  if (!el) return;
+  document.getElementById('wishes-count').textContent = wishes.length + ' из 3';
+  document.getElementById('wish-add-btn').style.opacity = wishes.length >= 3 ? '0.3' : '1';
+  if (!wishes.length) { el.innerHTML = '<div class="hist-empty"><div class="hist-empty-icon">🌠</div>Пока нет желаний</div>'; return; }
+  el.innerHTML = wishes.map(w => `
+    <div class="note-card" style="${w.done?'opacity:0.5;':''}">
+      <div class="note-text" style="${w.done?'text-decoration:line-through;':''}">${escHtml(w.text)}</div>
+      <div class="note-actions">
+        <button class="note-btn note-edit" onclick="openWishChat('${w.id}')">💬 Обсудить план</button>
+        <button class="note-btn ${w.done?'note-undone':'note-done'}" onclick="toggleWishDone('${w.id}', ${!!w.done})">${w.done?'↩ Открыть':'✓ Достигнуто'}</button>
+        <button class="note-btn note-del" onclick="deleteWish('${w.id}')">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('wish-add-btn').addEventListener('click', async () => {
+  const inp = document.getElementById('wish-input');
+  const text = inp.value.trim();
+  if (!text || wishes.length >= 3) return;
+  inp.value = '';
+  await addDoc(uCol('wishes'), { text, done:false, createdAt:new Date().toISOString() });
+  await loadWishes(); renderWishes();
+});
+document.getElementById('wish-input').addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('wish-add-btn').click();} });
+
+async function toggleWishDone(id, cur) {
+  await updateDoc(uDocRef('wishes', id), { done: !cur });
+  if (!cur) celebrateTaskDone();
+  await loadWishes(); renderWishes();
+}
+window.toggleWishDone = toggleWishDone;
+
+async function deleteWish(id) {
+  if (!confirm('Удалить это желание?')) return;
+  await deleteDoc(uDocRef('wishes', id));
+  await loadWishes(); renderWishes();
+}
+window.deleteWish = deleteWish;
+
+function wishMessagesCol(wishId) { return collection(db,'users',currentUid,'wishes',wishId,'messages'); }
+
+async function openWishChat(id) {
+  currentWishId = id;
+  const w = wishes.find(x => x.id === id);
+  document.getElementById('wishchat-title').textContent = w ? w.text : 'Желание';
+  const snap = await getDocs(query(wishMessagesCol(id), orderBy('time','asc')));
+  wishChatMessages = snap.docs.map(d => d.data());
+  renderWishChat();
+  goTo('wishchat');
+}
+window.openWishChat = openWishChat;
+
+function renderWishChat() {
+  const el = document.getElementById('wishchat-messages');
+  el.innerHTML = wishChatMessages.map(m => `<div class="chat-bubble ${m.role==='user'?'bubble-user':'bubble-ai'}">${escHtmlChat(m.content)}</div>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+document.getElementById('wishchat-send').addEventListener('click', async () => {
+  const inp = document.getElementById('wishchat-input');
+  const text = inp.value.trim();
+  if (!text || !currentWishId) return;
+  inp.value = '';
+  const w = wishes.find(x => x.id === currentWishId);
+  const userMsg = { role:'user', content:text, time:new Date().toISOString() };
+  wishChatMessages.push(userMsg);
+  renderWishChat();
+  await addDoc(wishMessagesCol(currentWishId), userMsg);
+
+  const sysPrompt = `Ты помогаешь пользователю добиться конкретной цели-желания: "${w.text}". Держись только этой темы. Задавай уточняющие вопросы, помогай построить конкретный пошаговый план, будь кратким и по-русски.`;
+  const apiMsgs = [{role:'system',content:sysPrompt}, ...wishChatMessages.map(m=>({role:m.role,content:m.content}))];
+  const msg = await callChatAPI(apiMsgs);
+  const reply = (msg && msg.content) ? msg.content.trim() : '...';
+  const aiMsg = { role:'assistant', content:reply, time:new Date().toISOString() };
+  wishChatMessages.push(aiMsg);
+  renderWishChat();
+  await addDoc(wishMessagesCol(currentWishId), aiMsg);
+});
+document.getElementById('wishchat-input').addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('wishchat-send').click();} });
+
 function getTodoQueue() {
   return notes.filter(n => n.inTodo === true && !n.done).sort((a,b) => (a.todoOrder||0) - (b.todoOrder||0));
 }
@@ -1982,6 +2113,7 @@ function goTo(screen) {
   if (screen === 'prompt') { renderPromptRules(); loadBalance(); }
   if (screen === 'tags') renderTagsScreen();
   if (screen === 'cloud') renderWordCloud();
+  if (screen === 'wishes') renderWishes();
 }
 window.goTo = goTo;
 
@@ -2100,7 +2232,7 @@ function buildChatTools() {
     type: 'function',
     function: {
       name: 'update_prompt',
-      description: 'Обновить долгосрочную инструкцию (промт) ассистента новым правилом. Вызывай ТОЛЬКО после явного подтверждения Алексея.',
+      description: 'Обновить долгосрочную инструкцию (промт) ассистента новым правилом. Вызывай ТОЛЬКО после явного подтверждения пользователя.',
       parameters: {
         type: 'object',
         properties: {
@@ -2254,8 +2386,8 @@ function getBaseInstructions() {
 - Не более одной задачи за раз
 
 КОГДА ВЫЗЫВАТЬ update_prompt:
-- Только после явного подтверждения Алексея в диалоге (например он написал «да» в ответ на твой вопрос про изменение инструкций)
-- rule должен быть краткой самостоятельной формулировкой (одна мысль/факт/правило) — он добавится отдельной строкой в список инструкций, который Алексей видит и может редактировать в приложении на экране «Промпт»
+- Только после явного подтверждения пользователя в диалоге (например он написал «да» в ответ на твой вопрос про изменение инструкций)
+- rule должен быть краткой самостоятельной формулировкой (одна мысль/факт/правило) — он добавится отдельной строкой в список инструкций, который пользователь видит и может редактировать в приложении на экране «Промпт»
 
 КОГДА СПРАШИВАТЬ «ТЫ СДЕЛАЛ X?»:
 - Только если в базе есть записи, похожие на конкретное невыполненное дело (без done:true), и прошло разумное время
@@ -2313,7 +2445,9 @@ function buildSystemPrompt() {
     ? todoQueue.map((n, i) => `${i+1}. ${n.text}${n.tag ? ' ('+n.tag+')' : ''}`).join('\n')
     : '(пусто — ничего не поставлено в очередь на выполнение сейчас)';
 
-  return `Ты — личный ИИ-ассистент Алексея в приложении Hazenstein. Сейчас: ${todayStr}.
+  return `Ты — личный ИИ-ассистент пользователя в приложении Hazenstein. Сейчас: ${todayStr}.
+
+ЗНАКОМСТВО: если в разделе "ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ" ниже нет имени пользователя — вежливо спроси, как к нему обращаться, при первом же удобном случае в диалоге (не обязательно первым сообщением, если пользователь уже начал с чего-то другого — сначала ответь по существу, а имя спроси следом). Когда пользователь назовёт имя, предложи запомнить его через update_prompt как обычно (с подтверждением, по общему правилу выше).
 
 ТУДУШКА (текущая очередь дел на выполнение прямо сейчас, по приоритету — пункт 1 самый первостепенный):
 ${todoContext}
@@ -2482,7 +2616,7 @@ function checkRemindersOnOpen() {
   if (due.length>0) {
     addChatMessage('assistant','⏰ Привет! Напоминания на сегодня:\n\n'+due.map(r=>'• '+r.text).join('\n'));
   } else if (chatHistory.length===0) {
-    addChatMessage('assistant','Привет, Алексей! 👋 Спроси меня что угодно — покажу что в базе, помогу разобрать записи или поставить задачу.');
+    addChatMessage('assistant','Привет! 👋 Как тебя зовут? И спроси меня что угодно — покажу что в базе, помогу разобрать записи или поставить задачу.');
   }
 }
 
@@ -2784,6 +2918,7 @@ async function initUserData() {
     loadPromptRules().then(renderPromptRules),
     loadChatHistory(),
     loadNotes(), // сама рендерит Историю, Тудушку и карточку фокуса по завершении
+    loadWishes(),
   ]);
   checkTagSuggestions(); // не блокируем интерфейс — проверяем в фоне, банер появится когда будет готов
 }
