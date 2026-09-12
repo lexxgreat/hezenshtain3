@@ -522,12 +522,16 @@ body{background:#060918;font-family:'Inter',sans-serif;display:flex;justify-cont
         <button onclick="goTo('hist')" style="background:none;border:none;color:rgba(255,255,255,0.4);font-size:22px;cursor:pointer;">←</button>
       </div>
     </div>
-    <div class="hist-filters" style="display:flex;gap:6px;padding:0 16px 10px;">
+    <div class="hist-filters" style="display:flex;gap:6px;padding:0 16px 10px;align-items:center;">
       <button class="hist-filter-btn" data-cloudperiod="7" onclick="setCloudPeriod(7)">7 дней</button>
       <button class="hist-filter-btn active" data-cloudperiod="30" onclick="setCloudPeriod(30)">30 дней</button>
       <button class="hist-filter-btn" data-cloudperiod="all" onclick="setCloudPeriod('all')">Всё время</button>
+      <button onclick="regenerateWordCloud()" style="margin-left:auto;background:rgba(108,71,255,0.12);border:0.5px solid rgba(139,92,246,0.4);border-radius:99px;padding:5px 12px;color:rgba(139,92,246,0.95);font-size:12px;cursor:pointer;font-family:'Inter',sans-serif;">🔄 Обновить</button>
     </div>
-    <div id="cloud-container" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-wrap:wrap;align-content:flex-start;justify-content:center;gap:2px;"></div>
+    <div id="cloud-generated-at" style="text-align:center;font-size:10.5px;color:rgba(255,255,255,0.3);padding-bottom:4px;"></div>
+    <div style="flex:1;overflow-y:auto;padding:0 8px 16px;display:flex;flex-direction:column;align-items:center;">
+      <canvas id="cloud-canvas" style="max-width:100%;"></canvas>
+    </div>
   </div>
 
   <!-- ── HISTORY SCREEN ── -->
@@ -1484,19 +1488,23 @@ async function toggleTodo(id, currentInTodo) {
 }
 window.toggleTodo = toggleTodo;
 
-// ── ОБЛАКО МЫСЛЕЙ ──
-const RU_STOPWORDS = new Set(['и','в','не','на','я','что','с','как','это','он','она','они','оно','но','да','ты','к','у','же','вы','за','бы','по','только','из','ему','когда','если','уже','или','ни','был','до','вас','вам','ведь','там','себя','ничего','может','тут','где','есть','для','мы','тебя','их','чем','сам','без','раз','тоже','себе','под','будет','тогда','кто','этот','того','потому','этого','какой','ним','здесь','этом','один','мой','тем','чтобы','нее','её','сейчас','были','куда','всех','можно','при','об','другой','после','над','через','эти','нас','про','всего','них','какая','эту','моя','этой','перед','том','такой','им','более','всю','между','а','то','всё','все','его','меня','мне','тебе','нам','был','была','было','быть','ещё','еще','уж','ж','ну','вот','либо','пока','который','которая','которое','которые','мои','твои','наш','ваш','со','во','от','яка']);
+// ── ОБЛАКО МЫСЛЕЙ (canvas, спиральная упаковка без пересечений, кэш — не пересчитывается на каждый визит) ──
+const RU_STOPWORDS = new Set(['и','в','не','на','я','что','с','как','это','он','она','они','оно','но','да','ты','к','у','же','вы','за','бы','по','только','из','ему','когда','если','уже','или','ни','был','до','вас','вам','ведь','там','себя','ничего','может','тут','где','есть','для','мы','тебя','их','чем','сам','без','раз','тоже','себе','под','будет','тогда','кто','этот','того','потому','этого','какой','ним','здесь','этом','один','мой','тем','чтобы','нее','её','сейчас','были','куда','всех','можно','при','об','другой','после','над','через','эти','нас','про','всего','них','какая','эту','моя','этой','перед','том','такой','им','более','всю','между','а','то','всё','все','его','меня','мне','тебе','нам','был','была','было','быть','ещё','еще','уж','ж','ну','вот','либо','пока','который','которая','которое','которые','мои','твои','наш','ваш','со','во','от']);
+
+const CLOUD_COLORS = ['#e63946','#2a9d8f','#e9c46a','#f4a261','#457b9d','#9d4edd','#06d6a0','#ffd60a','#ef476f','#118ab2','#a8dadc','#f77f00'];
 
 let cloudPeriod = 30; // 7 | 30 | 'all'
+let cloudCache = {}; // {7:{items,generatedAt}, 30:{...}, all:{...}} — грузится из Firestore при заходе
 
+// разбивает текст на слова, СОХРАНЯЯ исходный регистр (чтобы имена/бренды остались как в оригинале)
 function tokenizeForCloud(text) {
-  return text.toLowerCase()
+  return text
     .replace(/[^a-zа-яё0-9\s]/gi, ' ')
     .split(/\s+/)
-    .filter(w => w.length > 2 && !RU_STOPWORDS.has(w));
+    .filter(w => w.length > 2 && !RU_STOPWORDS.has(w.toLowerCase()));
 }
 
-function computeWordCloud(period) {
+function computeWordCloudItems(period) {
   let filtered = notes;
   if (period !== 'all') {
     const nowDay = toMoscowDayStart(new Date().toISOString());
@@ -1506,14 +1514,168 @@ function computeWordCloud(period) {
       return day >= startDay && day <= nowDay;
     });
   }
-  const wordFreq = {};
-  const tagFreq = {};
-  for (const n of filtered) {
-    if (n.tag) tagFreq[n.tag] = (tagFreq[n.tag] || 0) + 1;
-    for (const w of tokenizeForCloud(n.text)) wordFreq[w] = (wordFreq[w] || 0) + 1;
+  const counts = {}; // key: lowercase, value: {count, display: первый встретившийся вариант написания}
+  function bump(word) {
+    const key = word.toLowerCase();
+    if (!counts[key]) counts[key] = { count: 0, display: word };
+    counts[key].count++;
   }
-  return { wordFreq, tagFreq, noteCount: filtered.length };
+  for (const n of filtered) {
+    if (n.tag) bump(n.tag);
+    for (const w of tokenizeForCloud(n.text)) bump(w);
+  }
+  const items = Object.values(counts)
+    .map(v => ({ text: v.display, count: v.count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 55);
+  return { items, noteCount: filtered.length };
 }
+
+// спиральная упаковка: крупные слова ближе к центру, каждое следующее ищет свободное место
+// расширяющейся спиралью — этим достигается плотное "облако" без пересечений текста
+function packWordCloud(items, canvasWidth, canvasHeight, ctx) {
+  if (!items.length) return [];
+  const maxCount = items[0].count;
+  const minCount = items[items.length - 1].count;
+  const placed = []; // {x1,y1,x2,y2}
+  const results = [];
+  const centerX = canvasWidth / 2, centerY = canvasHeight / 2;
+
+  function overlapsAny(rect) {
+    return placed.some(p => !(rect.x2 < p.x1 || rect.x1 > p.x2 || rect.y2 < p.y1 || rect.y1 > p.y2));
+  }
+
+  items.forEach((item, idx) => {
+    const ratio = maxCount === minCount ? 1 : (item.count - minCount) / (maxCount - minCount);
+    const fontSize = Math.round(13 + Math.pow(ratio, 0.7) * 62); // 13..75px, не строго линейно — крупные заметнее выделяются
+    const rotate = Math.random() < 0.12 ? 90 : 0; // немного вертикальных слов для живости, как в референсе
+    const displayText = ratio > 0.38 ? item.text.toUpperCase() : item.text;
+
+    ctx.font = `${ratio > 0.38 ? '800' : '600'} ${fontSize}px Inter, Arial, sans-serif`;
+    const metrics = ctx.measureText(displayText);
+    let w = metrics.width + 10, h = fontSize * 1.2;
+    if (rotate === 90) { const t = w; w = h; h = t; }
+
+    let angle = 0, foundX = centerX - w / 2, foundY = centerY - h / 2, found = false;
+    for (let attempt = 0; attempt < 2500; attempt++) {
+      const radius = 3.2 * angle; // архимедова спираль — радиус растёт пропорционально углу
+      const testX = centerX + radius * Math.cos(angle) - w / 2;
+      const testY = centerY + radius * Math.sin(angle) * 0.7 - h / 2; // чуть сжимаем по Y, эллипс вместо круга
+      const rect = { x1: testX, y1: testY, x2: testX + w, y2: testY + h };
+      if (rect.x1 >= 2 && rect.y1 >= 2 && rect.x2 <= canvasWidth - 2 && rect.y2 <= canvasHeight - 2 && !overlapsAny(rect)) {
+        foundX = testX; foundY = testY; found = true;
+        break;
+      }
+      angle += 0.28;
+    }
+    if (!found) return; // не нашли места (обычно самые мелкие слова в самом конце) — просто пропускаем
+
+    placed.push({ x1: foundX, y1: foundY, x2: foundX + w, y2: foundY + h });
+    results.push({
+      text: displayText, x: foundX + w / 2, y: foundY + h / 2,
+      fontSize, rotate, bold: ratio > 0.38,
+      color: CLOUD_COLORS[idx % CLOUD_COLORS.length]
+    });
+  });
+  return results;
+}
+
+function drawWordCloud(layout, canvas) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  layout.forEach(w => {
+    ctx.save();
+    ctx.translate(w.x, w.y);
+    if (w.rotate) ctx.rotate(w.rotate * Math.PI / 180);
+    ctx.font = `${w.bold ? '800' : '600'} ${w.fontSize}px Inter, Arial, sans-serif`;
+    ctx.fillStyle = w.color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(w.text, 0, 0);
+    ctx.restore();
+  });
+}
+
+async function loadCloudCache() {
+  try {
+    const snap = await getDocs(uCol('meta'));
+    const doc_ = snap.docs.find(d => d.id === 'wordcloud_cache');
+    cloudCache = doc_ ? (doc_.data().periods || {}) : {};
+  } catch(e) { cloudCache = {}; }
+}
+
+async function saveCloudCache() {
+  try { await setDoc(uDocRef('meta', 'wordcloud_cache'), { periods: cloudCache }); } catch(e) {}
+}
+
+function formatCloudTimestamp(iso) {
+  if (!iso) return '';
+  const d = new Date(new Date(iso).getTime() + 3 * 60 * 60 * 1000);
+  return 'Обновлено: ' + d.toLocaleDateString('ru-RU', { day:'numeric', month:'short', timeZone:'UTC' }) + ' в ' + d.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'UTC' });
+}
+
+function drawFromCache(period) {
+  const canvas = document.getElementById('cloud-canvas');
+  if (!canvas) return false;
+  const cached = cloudCache[period];
+  if (!cached || !cached.layout || !cached.layout.length) return false;
+  canvas.width = cached.width;
+  canvas.height = cached.height;
+  canvas.style.width = cached.width + 'px';
+  canvas.style.height = cached.height + 'px';
+  drawWordCloud(cached.layout, canvas);
+  document.getElementById('cloud-generated-at').textContent = formatCloudTimestamp(cached.generatedAt);
+  return true;
+}
+
+async function regenerateWordCloud() {
+  const canvas = document.getElementById('cloud-canvas');
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  const width = Math.min(wrap.clientWidth - 16, 640);
+
+  const { items, noteCount } = computeWordCloudItems(cloudPeriod);
+  document.getElementById('cloud-sub').textContent = noteCount + ' записей за период';
+  if (!items.length) {
+    canvas.width = width; canvas.height = Math.round(width * 0.5);
+    canvas.style.width = width + 'px'; canvas.style.height = canvas.height + 'px';
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    document.getElementById('cloud-generated-at').textContent = '';
+    return;
+  }
+
+  // оцениваем реально нужную площадь под все слова и подбираем высоту холста под неё —
+  // без этого при большом числе разных слов часть просто не находила бы места и пропадала
+  const measureCtx = canvas.getContext('2d');
+  const maxCount = items[0].count, minCount = items[items.length - 1].count;
+  let estArea = 0;
+  for (const item of items) {
+    const ratio = maxCount === minCount ? 1 : (item.count - minCount) / (maxCount - minCount);
+    const fontSize = Math.round(13 + Math.pow(ratio, 0.7) * 62);
+    const text = ratio > 0.38 ? item.text.toUpperCase() : item.text;
+    measureCtx.font = `${ratio > 0.38 ? '800' : '600'} ${fontSize}px Inter, Arial, sans-serif`;
+    const w = measureCtx.measureText(text).width + 10;
+    const h = fontSize * 1.2;
+    estArea += w * h;
+  }
+  const BUFFER = 1.8; // запас на неэффективность спиральной упаковки (свободные промежутки между словами)
+  const height = Math.max(320, Math.min(1400, Math.round(estArea * BUFFER / width)));
+
+  canvas.width = width;
+  canvas.height = height;
+  canvas.style.width = width + 'px';
+  canvas.style.height = height + 'px';
+
+  const ctx = canvas.getContext('2d');
+  const layout = packWordCloud(items, width, height, ctx);
+  drawWordCloud(layout, canvas);
+
+  const generatedAt = new Date().toISOString();
+  cloudCache[cloudPeriod] = { layout, width, height, generatedAt };
+  document.getElementById('cloud-generated-at').textContent = formatCloudTimestamp(generatedAt);
+  await saveCloudCache();
+}
+window.regenerateWordCloud = regenerateWordCloud;
 
 function setCloudPeriod(period) {
   cloudPeriod = period;
@@ -1524,32 +1686,11 @@ function setCloudPeriod(period) {
 }
 window.setCloudPeriod = setCloudPeriod;
 
-function renderWordCloud() {
-  const el = document.getElementById('cloud-container');
-  if (!el) return;
-  const { wordFreq, tagFreq, noteCount } = computeWordCloud(cloudPeriod);
-  document.getElementById('cloud-sub').textContent = noteCount + ' записей за период';
-
-  const items = [];
-  for (const [tag, count] of Object.entries(tagFreq)) items.push({ text: '#' + tag, count: count * 2, isTag: true });
-  for (const [word, count] of Object.entries(wordFreq)) items.push({ text: word, count, isTag: false });
-  items.sort((a, b) => b.count - a.count);
-  const top = items.slice(0, 60);
-
-  if (!top.length) {
-    el.innerHTML = '<div class="hist-empty"><div class="hist-empty-icon">☁️</div>Пока не набралось записей за этот период</div>';
-    return;
-  }
-  const maxCount = top[0].count;
-  const minCount = top[top.length - 1].count;
-  el.innerHTML = top.map(item => {
-    const ratio = maxCount === minCount ? 1 : (item.count - minCount) / (maxCount - minCount);
-    const fontSize = (13 + ratio * 27).toFixed(1);
-    const opacity = (0.5 + ratio * 0.5).toFixed(2);
-    const rotate = (Math.random() * 10 - 5).toFixed(1);
-    const color = item.isTag ? `rgba(139,92,246,${opacity})` : `rgba(255,255,255,${opacity})`;
-    return `<span style="font-size:${fontSize}px;color:${color};font-weight:${item.isTag ? 700 : 500};transform:rotate(${rotate}deg);display:inline-block;padding:3px 7px;line-height:1.2;">${escHtml(item.text)}</span>`;
-  }).join('');
+// показываем кэш если есть (мгновенно, без пересчёта) — иначе генерируем один раз
+async function renderWordCloud() {
+  if (!Object.keys(cloudCache).length) await loadCloudCache();
+  const shown = drawFromCache(cloudPeriod);
+  if (!shown) await regenerateWordCloud();
 }
 
 function getTodoQueue() {
